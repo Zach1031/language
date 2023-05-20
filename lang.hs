@@ -7,18 +7,21 @@ import Control.Applicative
 
 {-# LANGUAGE MultiWayIf #-}
 
+-- data Statement = FunctionT | Expression
+
 newtype FunctionCallT = FunctionCall [Expression]
 
-data FunctionT = Function [String] Expression
+-- data FunctionT = Function [String] Expression
 
 data Expression =
-    Binary Op Expression Expression | Literal Float | Var String
+    Binary Op Expression Expression | Literal Float | Var String | Function String [String] Expression
     deriving Eq
 
 instance Show Expression where
     show (Binary op a b) = "(" ++ show op ++ " " ++ show a ++ " " ++ show b ++ ")"
     show (Literal val) = "(Literal " ++ show val ++ ")"
     show (Var name) = "(Var " ++ show name ++ ")"
+    show (Function name vars expr) = show name ++ " (" ++ show vars ++ ") -> " ++ show expr
 
 data Op = Add | Sub | Mult | Div
     deriving (Eq, Show)
@@ -30,8 +33,8 @@ access name ((key, val):xs)
     | name == key = val
     | otherwise = access name xs
 
-evaluateFunction :: FunctionT -> FunctionCallT -> Float
-evaluateFunction (Function vars expr) (FunctionCall vals) = evaluate (subFunction expr (zip vars (map evaluate vals)))
+evaluateFunction :: Expression -> FunctionCallT -> Float
+evaluateFunction (Function name vars expr) (FunctionCall vals) = evaluate (subFunction expr (zip vars (map evaluate vals)))
 
 subFunction :: Expression -> [(String, Float)] -> Expression
 subFunction (Var x) state = Literal (access x state)
@@ -74,7 +77,7 @@ instance Eq Token where
 op :: String -> Op
 op "+" = Add
 op "-" = Sub
-op "*" = Mult 
+op "*" = Mult
 op "/" = Div
 
 subExpr :: [Token] -> [Token] -> Int -> [Token]
@@ -89,7 +92,7 @@ parseFirst (x : xs) = [x]
 
 remove :: Eq a => [a] -> [a] -> [a]
 remove [] a = a
-remove (x:xs) (y:ys)  
+remove (x:xs) (y:ys)
     | x == y = remove xs ys
     | otherwise = remove xs (y : ys)
 
@@ -104,12 +107,29 @@ parse :: [Token] -> Expression
 parse (ParenTok "(" : xs) = parse $ subExpr xs [] 0
 parse ((OpTok x) : xs) = Binary (op x) (parse $ parseFirst xs) (parse $ parseSecond xs)
 parse (NumTok x : xs) = Literal (read x :: Float)
-parse x = Literal 12
+parse (IdenTok x : xs) = Var x
+
+parseVars :: [Token] -> Bool -> [String] -> [String]
+parseVars (ParenTok "(" : xs) reading vars = parseVars xs True vars
+parseVars (ParenTok ")" : xs) reading vars = reverse vars
+parseVars (IdenTok x : xs) True vars = parseVars xs True (x : vars)
+parseVars (IdenTok x : xs) False vars = parseVars xs False vars
+
+splitExpr :: [Token] -> [Token]
+splitExpr (Pointer : xs) = xs
+splitExpr (x : xs) = splitExpr xs
+
+parseName :: [Token] -> String
+parseName (IdenTok x : ParenTok "(": xs) = x
+parseName (x : xs) = parseName xs
+
+parseFunction :: [Token] -> Expression
+parseFunction tokens = trace (parseName tokens) Function (parseName tokens) (parseVars tokens False []) (parse (splitExpr tokens))
 
 isFunctionDef :: [Token] -> Bool
 isFunctionDef [] = False
 isFunctionDef (Pointer : xs) = True
-isFunctionDef (x : xs) = isFunctionDef xs 
+isFunctionDef (x : xs) = isFunctionDef xs
 
 parseInterface :: [Token] -> Expression
 parseInterface tokens
@@ -140,7 +160,7 @@ append a b
 
 containsPointer :: String -> Bool
 containsPointer x = head x : [head (tail x)] == "->"
-    
+
 
 lexer :: String -> String -> [Token] -> [Token]
 lexer [] a b = reverse $ append a b
@@ -163,7 +183,8 @@ main = do
   doSomethingWith s
 
 doSomethingWith :: String -> IO ()
-doSomethingWith x = print (lexerInterface x)
+--doSomethingWith x = print $ (lexerInterface x)
+doSomethingWith x = print $ parseInterface (lexerInterface x)
 
 -- main = do
 --     x <- getLine
