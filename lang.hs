@@ -6,15 +6,16 @@ import Control.Applicative
 --- DELETE ANYTHING AFTER HERE
 
 {-# LANGUAGE MultiWayIf #-}
+{-# LANGUAGE ViewPatterns #-}
 
 -- data Statement = FunctionT | Expression
 
-newtype FunctionCallT = FunctionCall [Expression]
+-- data FunctionCallT = 
 
 -- data FunctionT = Function [String] Expression
 
 data Expression =
-    Binary Op Expression Expression | Literal Float | Var String | Function String [String] Expression
+    Binary Op Expression Expression | Literal Float | Var String | Function String [String] Expression | FunctionCall String [Expression]
     deriving Eq
 
 instance Show Expression where
@@ -22,6 +23,7 @@ instance Show Expression where
     show (Literal val) = "(Literal " ++ show val ++ ")"
     show (Var name) = "(Var " ++ show name ++ ")"
     show (Function name vars expr) = show name ++ " (" ++ show vars ++ ") -> " ++ show expr
+    show (FunctionCall name vars) = show name ++ " (" ++ show vars ++  ")" 
 
 data Op = Add | Sub | Mult | Div
     deriving (Eq, Show)
@@ -33,45 +35,57 @@ access name ((key, val):xs)
     | name == key = val
     | otherwise = access name xs
 
-evaluateFunction :: Expression -> FunctionCallT -> Float
-evaluateFunction (Function name vars expr) (FunctionCall vals) = evaluate (subFunction expr (zip vars (map evaluate vals)))
+evaluateFunction :: Expression -> [Expression] -> [(String, Expression)] -> Float
+evaluateFunction (Function name vars expr) vals state = evaluate (subFunction expr (zip vars (map (\x -> evaluate x state) vals))) state
 
 subFunction :: Expression -> [(String, Float)] -> Expression
 subFunction (Var x) state = Literal (access x state)
 subFunction (Binary op expr1 expr2) state = Binary op (subFunction expr1 state) (subFunction expr2 state)
 subFunction (Literal x) state = Literal x
+subFunction (FunctionCall name vars) state = FunctionCall name (map (\x -> subFunction x state) vars)
+subFunction x state = (trace $ show x ++ " " ++ show state ) (Literal (-12345889))
 
 
-evaluateBinary :: Op -> Expression -> Expression -> Float
-evaluateBinary Add a b = evaluate a + evaluate b
-evaluateBinary Sub a b = evaluate a - evaluate b
-evaluateBinary Mult a b = evaluate a * evaluate b
-evaluateBinary Div a b = evaluate a / evaluate b
+evaluateBinary :: Op -> Expression -> Expression -> [(String, Expression)] -> Float
+evaluateBinary Add a b state  = evaluate a state + evaluate b state
+evaluateBinary Sub a b state = evaluate a state - evaluate b state
+evaluateBinary Mult a b state = evaluate a state * evaluate b state
+evaluateBinary Div a b state =evaluate a state / evaluate b state
 
 
 evaluateLiteral :: Float -> Float
 evaluateLiteral x = x
 
-evaluateExpression :: Expression -> Float
-evaluateExpression (Binary op a b) = evaluateBinary op a b
-evaluateExpression (Literal val) = evaluateLiteral val
+evaluateExpression :: Expression -> [(String, Expression)] -> Float
+evaluateExpression (Binary op a b) state = evaluateBinary op a b state
+evaluateExpression (Literal val) state = evaluateLiteral val
 
-evaluate :: Expression -> Float
-evaluate (Binary op a b) = evaluateBinary op a b
-evaluate (Literal val) = evaluateLiteral val
+findFunction :: String -> [(String, Expression)] -> Expression
+findFunction request ((name, func) : xs)
+    | request == name = func
+    | otherwise = findFunction request xs
+
+evaluate :: Expression -> [(String, Expression)] -> Float
+evaluate (Binary op a b) state = evaluateBinary op a b state
+evaluate (Literal val) state = evaluateLiteral val
+evaluate (FunctionCall name exprs) state = evaluateFunction (findFunction name state) exprs state
 
 -- evaluate :: Expression -> State -> Maybe Float
 -- evaluate 
 
 data Token =
-    NumTok String | OpTok String | ParenTok String | IdenTok String | Pointer | NewLine
+    NumTok String | OpTok String | ParenTok String | IdenTok String | Pointer | NewLine | Comma
     deriving Show
 
 instance Eq Token where
+    (==) :: Token -> Token -> Bool
     (==) (OpTok a) (OpTok b) = a == b
     (==) (NumTok a) (NumTok b) = a == b
     (==) (ParenTok a) (ParenTok b) = a == b
     (==) (IdenTok a) (IdenTok b) = a == b
+    (==) Pointer Pointer = True
+    (==) NewLine NewLine = True
+    (==) Comma Comma = True
     (==) _ _ = False
 
 op :: String -> Op
@@ -108,6 +122,7 @@ parse (ParenTok "(" : xs) = parse $ subExpr xs [] 0
 parse ((OpTok x) : xs) = Binary (op x) (parse $ parseFirst xs) (parse $ parseSecond xs)
 parse (NumTok x : xs) = Literal (read x :: Float)
 parse (IdenTok x : xs) = Var x
+parse x = trace (show x) $ Literal 12
 
 parseVars :: [Token] -> Bool -> [String] -> [String]
 parseVars (ParenTok "(" : xs) reading vars = parseVars xs True vars
@@ -124,32 +139,51 @@ parseName (IdenTok x : ParenTok "(": xs) = x
 parseName (x : xs) = parseName xs
 
 parseFunction :: [Token] -> Expression
-parseFunction tokens = trace (parseName tokens) Function (parseName tokens) (parseVars tokens False []) (parse (splitExpr tokens))
+parseFunction tokens = Function (parseName tokens) (parseVars tokens False []) (parseInterface (splitExpr tokens))
+
+parseInput :: [Token] -> [Expression]
+parseInput (ParenTok "(" : xs) = map parseInterface (splitByToken (init xs) Comma [])
+
+parseFunctionCall :: [Token] -> Expression
+parseFunctionCall (IdenTok name : xs) = FunctionCall name (parseInput xs)
 
 isFunctionDef :: [Token] -> Bool
 isFunctionDef [] = False
 isFunctionDef (Pointer : xs) = True
 isFunctionDef (x : xs) = isFunctionDef xs
 
+isFunctionCall :: [Token] -> Bool
+isFunctionCall [] = False
+isFunctionCall (Comma : xs) = True
+isFunctionCall (x : xs) = isFunctionCall xs
+
 parseInterface :: [Token] -> Expression
 parseInterface tokens
     | isFunctionDef tokens = parseFunction tokens
+    | isFunctionCall tokens = parseFunctionCall tokens
     | otherwise = parse tokens
 
 float :: String -> Float
 float x = read x :: Float
 
+splitByToken :: [Token] -> Token -> [[Token]] -> [[Token]]
+splitByToken [] tok y = reverse $ map reverse y
+splitByToken (x : xs) tok [] = splitByToken xs tok [[x]]
+splitByToken (x : xs) tok (y : ys)
+    | x == Comma = splitByToken xs tok ([] : y : ys)
+    | otherwise = splitByToken xs tok ((x : y) : ys)
 
 specialCharacter :: Char -> Bool
 specialCharacter x
     | x == '+' || x == '-' || x == '*' || x == '/'
-        || x == '(' || x == ')' = True
+        || x == '(' || x == ')' || x == ',' = True
     | otherwise = False
 
 createTok :: Char -> Token
 createTok x
     | x == '+' || x == '-' || x == '*' || x == '/' = OpTok [x]
     | x == '(' || x == ')' = ParenTok [x]
+    | x == ',' = Comma
 
 append :: String -> [Token] -> [Token]
 append "" b = b
@@ -171,10 +205,24 @@ lexer (x:xs) a b
     | specialCharacter x = lexer xs [] (createTok x : append a b)
     | otherwise = lexer xs (x : a) b
 
-
+splitByChar :: String -> [String] -> [String]
+splitByChar [] y = reverse y
+splitByChar (x : xs) [] = splitByChar xs [[x]]
+splitByChar (x : xs) (y : ys)
+    | x == '\n' && not (y == []) = splitByChar xs ([] : y : ys)
+    | x == '\n' = splitByChar xs (y : ys)
+    | otherwise = splitByChar xs (reverse (x : reverse y) : ys)
 
 lexerInterface :: String -> [Token]
 lexerInterface x = lexer x [] []
+
+
+extractName :: Expression -> String
+extractName (Function name vars expr) = name
+
+consumeStatements :: [[Token]] -> [(String, Expression)] -> Float
+consumeStatements [x] state = evaluate (parseInterface x) state
+consumeStatements (x:xs) a = consumeStatements xs ((extractName $ parseInterface x, parseInterface x) : a)
 
 -- runStuff :: String -> 
 
@@ -183,8 +231,8 @@ main = do
   doSomethingWith s
 
 doSomethingWith :: String -> IO ()
---doSomethingWith x = print $ (lexerInterface x)
-doSomethingWith x = print $ parseInterface (lexerInterface x)
+--doSomethingWith x = print $ (map lexerInterface (splitByChar x []))
+doSomethingWith x = print $ consumeStatements (map lexerInterface (splitByChar x [])) []
 
 -- main = do
 --     x <- getLine

@@ -1,1 +1,7 @@
-fib (x y) -> + x y
+test (x y) -> * x y
+
+my_func (a b) -> test (+ a 1, b)
+
+
+
+my_func (2, 2)
