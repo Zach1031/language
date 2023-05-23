@@ -23,7 +23,7 @@ instance Show Expression where
     show (Literal val) = "(Literal " ++ show val ++ ")"
     show (Var name) = "(Var " ++ show name ++ ")"
     show (Function name vars expr) = show name ++ " (" ++ show vars ++ ") -> " ++ show expr
-    show (FunctionCall name vars) = show name ++ " (" ++ show vars ++  ")" 
+    show (FunctionCall name vars) = show name ++ " (" ++ show vars ++  ")"
     show (Error message) = show "ERROR: " ++ message
 
 data Op = Add | Sub | Mult | Div
@@ -123,7 +123,7 @@ parse :: [Token] -> Expression
 parse (ParenTok "(" : xs) = parse $ subExpr xs [] 0
 parse ((OpTok x) : xs) = Binary (op x) (parse $ parseFirst xs) (parse $ parseSecond xs)
 parse (NumTok x : xs) = Literal (read x :: Float)
-parse (IdenTok x : xs) 
+parse (IdenTok x : xs)
     | isFunctionCall (IdenTok x : xs) = parseFunctionCall (IdenTok x : xs)
     | otherwise = Var x
 parse x = Error $ "Cannot parse " ++ show x
@@ -241,25 +241,29 @@ appendState :: Expression -> [(String, Expression)] -> [(String, Expression)]
 appendState (Function name expr vars) state = (name, Function name expr vars) : state
 appendState x state = state
 
+appendAll :: [Expression] -> [(String, Expression)] -> [(String, Expression)]
+appendAll xs state = foldl (flip appendState) state xs
+
 substring :: Int -> Int -> String -> String
 substring start end text = take (end - start) (drop start text)
 
--- loadFile :: String -> [Expression]
--- loadFile input =
-
 
 runRepl :: [(String, Expression)] -> IO()
-runRepl state = do 
+runRepl state = do
             putStr "> "
             hFlush stdout
             input <- getLine
             if input /= "quit"
                 then do
-                    -- if substring 0 4 input == "load"
-                    --     then do
-                    --         let output = loadFile input substring
-                    --         runRepl $ appendState output state 
-                    -- else do 
+                    if substring 0 4 input == "load"
+                        then do
+                            file <- readFile (substring 5 (length input) input ++ ".txt")
+                            let statements = map lexerInterface (splitByChar file [])
+
+                            putStrLn $ "Loaded from " ++ substring 5 (length input) input ++ "..."
+
+                            runRepl $ foldl (flip appendState) state (map parseInterface statements)
+                    else do
                         let output =  parseInterface $ lexerInterface input
                         determineOutput output state
 
@@ -272,7 +276,7 @@ main = do
   args <- getArgs
   if null args
     then runRepl []
-    else 
+    else
         if length args == 1
             then do
                 file <- readFile $ head args
