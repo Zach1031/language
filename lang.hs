@@ -1,18 +1,10 @@
 import System.Directory.Internal.Prelude
 import Debug.Trace
 import Data.Char
---- DELETE ANYTHING AFTER HERE BESIDES CONTROL
 import Control.Applicative
---- DELETE ANYTHING AFTER HERE
 
 {-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE ViewPatterns #-}
-
--- data Statement = FunctionT | Expression
-
--- data FunctionCallT = 
-
--- data FunctionT = Function [String] Expression
 
 data Expression =
     Binary Op Expression Expression | Literal Float | Var String | Function String [String] Expression | FunctionCall String [Expression] | Error String
@@ -68,10 +60,7 @@ evaluate :: Expression -> [(String, Expression)] -> Float
 evaluate (Binary op a b) state = evaluateBinary op a b state
 evaluate (Literal val) state = evaluateLiteral val
 evaluate (FunctionCall name exprs) state = evaluateFunction (findFunction name state) exprs state
-evaluate x state = (-123)
-
--- evaluate :: Expression -> State -> Maybe Float
--- evaluate 
+evaluate x state = -123
 
 data Token =
     NumTok String | OpTok String | ParenTok String | IdenTok String | Pointer | NewLine | Comma | Colon
@@ -170,7 +159,6 @@ isFunctionCall (x : xs) = isFunctionCall xs
 parseInterface :: [Token] -> Expression
 parseInterface tokens
     | isFunctionDef tokens = parseFunction tokens
-    -- | isFunctionCall tokens = parseFunctionCall tokens
     | otherwise = parse tokens
 
 float :: String -> Float
@@ -218,7 +206,7 @@ splitByChar :: String -> [String] -> [String]
 splitByChar [] y = reverse y
 splitByChar (x : xs) [] = splitByChar xs [[x]]
 splitByChar (x : xs) (y : ys)
-    | x == '\n' && not (y == []) = splitByChar xs ([] : y : ys)
+    | x == '\n' && y /= [] = splitByChar xs ([] : y : ys)
     | x == '\n' = splitByChar xs (y : ys)
     | otherwise = splitByChar xs (reverse (x : reverse y) : ys)
 
@@ -282,16 +270,3 @@ main = do
                 file <- readFile $ head args
                 print $ consumeStatements (map lexerInterface (splitByChar file [])) []
             else putStrLn "Usage: ./lang for the console and ./lang [FILENAME] to run file"
-
-
--- main = do
---   s <- readFile "foo.txt"
---   doSomethingWith s
-
--- doSomethingWith :: String -> IO ()
--- doSomethingWith x = print $ (map lexerInterface (splitByChar x []))
---doSomethingWith x = print $ consumeStatements (map lexerInterface (splitByChar x [])) []
-
--- main = do
---     x <- getLine
---     print (evaluate (parse (lexerInterface x)))
