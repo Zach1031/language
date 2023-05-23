@@ -15,7 +15,7 @@ import Control.Applicative
 -- data FunctionT = Function [String] Expression
 
 data Expression =
-    Binary Op Expression Expression | Literal Float | Var String | Function String [String] Expression | FunctionCall String [Expression]
+    Binary Op Expression Expression | Literal Float | Var String | Function String [String] Expression | FunctionCall String [Expression] | Error String
     deriving Eq
 
 instance Show Expression where
@@ -24,11 +24,10 @@ instance Show Expression where
     show (Var name) = "(Var " ++ show name ++ ")"
     show (Function name vars expr) = show name ++ " (" ++ show vars ++ ") -> " ++ show expr
     show (FunctionCall name vars) = show name ++ " (" ++ show vars ++  ")" 
+    show (Error message) = show "ERROR: " ++ message
 
 data Op = Add | Sub | Mult | Div
     deriving (Eq, Show)
-
--- type Literal = Float
 
 access :: String -> [(String, Float)] -> Float
 access name ((key, val):xs)
@@ -43,7 +42,7 @@ subFunction (Var x) state = Literal (access x state)
 subFunction (Binary op expr1 expr2) state = Binary op (subFunction expr1 state) (subFunction expr2 state)
 subFunction (Literal x) state = Literal x
 subFunction (FunctionCall name vars) state = FunctionCall name (map (\x -> subFunction x state) vars)
-subFunction x state = (Literal (-12345889))
+subFunction x state = Error $ "Cannot parse subfunction " ++ show x
 
 
 evaluateBinary :: Op -> Expression -> Expression -> [(String, Expression)] -> Float
@@ -69,12 +68,13 @@ evaluate :: Expression -> [(String, Expression)] -> Float
 evaluate (Binary op a b) state = evaluateBinary op a b state
 evaluate (Literal val) state = evaluateLiteral val
 evaluate (FunctionCall name exprs) state = evaluateFunction (findFunction name state) exprs state
+evaluate x state = (-123)
 
 -- evaluate :: Expression -> State -> Maybe Float
 -- evaluate 
 
 data Token =
-    NumTok String | OpTok String | ParenTok String | IdenTok String | Pointer | NewLine | Comma
+    NumTok String | OpTok String | ParenTok String | IdenTok String | Pointer | NewLine | Comma | Colon
     deriving Show
 
 instance Eq Token where
@@ -103,12 +103,14 @@ subExpr (x : xs) b num = subExpr xs (x : b) num
 parseFirst :: [Token] -> [Token]
 parseFirst (ParenTok "(" : xs) = subExpr xs [] 0
 parseFirst (x : xs) = [x]
+parseFirst [] = []
 
 remove :: Eq a => [a] -> [a] -> [a]
 remove [] a = a
 remove (x:xs) (y:ys)
     | x == y = remove xs ys
     | otherwise = remove xs (y : ys)
+remove x [] = []
 
 
 addParens :: [Token] -> [Token]
@@ -124,7 +126,7 @@ parse (NumTok x : xs) = Literal (read x :: Float)
 parse (IdenTok x : xs) 
     | isFunctionCall (IdenTok x : xs) = parseFunctionCall (IdenTok x : xs)
     | otherwise = Var x
-parse x = Literal (-1234)
+parse x = Error $ "Cannot parse " ++ show x
 
 parseVars :: [Token] -> Bool -> [String] -> [String]
 parseVars (ParenTok "(" : xs) reading vars = parseVars xs True vars
@@ -154,6 +156,11 @@ isFunctionDef :: [Token] -> Bool
 isFunctionDef [] = False
 isFunctionDef (Pointer : xs) = True
 isFunctionDef (x : xs) = isFunctionDef xs
+
+isMultiFunction :: [Token] -> Bool
+isMultiFunction [] = False
+isMultiFunction (Colon : xs) = True
+isMultiFunction (x : xs) = isMultiFunction xs
 
 isFunctionCall :: [Token] -> Bool
 isFunctionCall [] = False
@@ -191,7 +198,6 @@ createTok x
 append :: String -> [Token] -> [Token]
 append "" b = b
 append a b
-    -- | not (null b) && head b /= NewLine = append [] (NewLine : b)
     | isDigit $ last a = NumTok (reverse a) : b
     | otherwise = IdenTok (reverse a) : b
 
@@ -227,15 +233,60 @@ consumeStatements :: [[Token]] -> [(String, Expression)] -> Float
 consumeStatements [x] state = evaluate (parseInterface x) state
 consumeStatements (x:xs) a = consumeStatements xs ((extractName $ parseInterface x, parseInterface x) : a)
 
--- runStuff :: String -> 
+determineOutput :: Expression -> [(String, Expression)] -> IO()
+determineOutput (Function name varse expr) state = putStr ""
+determineOutput x state = print (evaluate x state)
 
+appendState :: Expression -> [(String, Expression)] -> [(String, Expression)]
+appendState (Function name expr vars) state = (name, Function name expr vars) : state
+appendState x state = state
+
+substring :: Int -> Int -> String -> String
+substring start end text = take (end - start) (drop start text)
+
+-- loadFile :: String -> [Expression]
+-- loadFile input =
+
+
+runRepl :: [(String, Expression)] -> IO()
+runRepl state = do 
+            putStr "> "
+            hFlush stdout
+            input <- getLine
+            if input /= "quit"
+                then do
+                    -- if substring 0 4 input == "load"
+                    --     then do
+                    --         let output = loadFile input substring
+                    --         runRepl $ appendState output state 
+                    -- else do 
+                        let output =  parseInterface $ lexerInterface input
+                        determineOutput output state
+
+                        runRepl $ appendState output state
+            else
+                print "Goodbye!"
+
+main :: IO ()
 main = do
-  s <- readFile "foo.txt"
-  doSomethingWith s
+  args <- getArgs
+  if null args
+    then runRepl []
+    else 
+        if length args == 1
+            then do
+                file <- readFile $ head args
+                print $ consumeStatements (map lexerInterface (splitByChar file [])) []
+            else putStrLn "Usage: ./lang for the console and ./lang [FILENAME] to run file"
 
-doSomethingWith :: String -> IO ()
---doSomethingWith x = print $ (map lexerInterface (splitByChar x []))
-doSomethingWith x = print $ consumeStatements (map lexerInterface (splitByChar x [])) []
+
+-- main = do
+--   s <- readFile "foo.txt"
+--   doSomethingWith s
+
+-- doSomethingWith :: String -> IO ()
+-- doSomethingWith x = print $ (map lexerInterface (splitByChar x []))
+--doSomethingWith x = print $ consumeStatements (map lexerInterface (splitByChar x [])) []
 
 -- main = do
 --     x <- getLine
