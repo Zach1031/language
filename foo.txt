@@ -1,7 +1,5 @@
 test (x y) -> * x y
 
-my_func (a b) -> test (+ a 1, b)
+my_func (x y) -> + test (x, y) test (x, y)
 
-
-
-my_func (2, 2)
+my_func (1, 2)

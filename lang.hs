@@ -43,7 +43,7 @@ subFunction (Var x) state = Literal (access x state)
 subFunction (Binary op expr1 expr2) state = Binary op (subFunction expr1 state) (subFunction expr2 state)
 subFunction (Literal x) state = Literal x
 subFunction (FunctionCall name vars) state = FunctionCall name (map (\x -> subFunction x state) vars)
-subFunction x state = (trace $ show x ++ " " ++ show state ) (Literal (-12345889))
+subFunction x state = (Literal (-12345889))
 
 
 evaluateBinary :: Op -> Expression -> Expression -> [(String, Expression)] -> Float
@@ -121,8 +121,10 @@ parse :: [Token] -> Expression
 parse (ParenTok "(" : xs) = parse $ subExpr xs [] 0
 parse ((OpTok x) : xs) = Binary (op x) (parse $ parseFirst xs) (parse $ parseSecond xs)
 parse (NumTok x : xs) = Literal (read x :: Float)
-parse (IdenTok x : xs) = Var x
-parse x = trace (show x) $ Literal 12
+parse (IdenTok x : xs) 
+    | isFunctionCall (IdenTok x : xs) = parseFunctionCall (IdenTok x : xs)
+    | otherwise = Var x
+parse x = Literal (-1234)
 
 parseVars :: [Token] -> Bool -> [String] -> [String]
 parseVars (ParenTok "(" : xs) reading vars = parseVars xs True vars
@@ -146,6 +148,7 @@ parseInput (ParenTok "(" : xs) = map parseInterface (splitByToken (init xs) Comm
 
 parseFunctionCall :: [Token] -> Expression
 parseFunctionCall (IdenTok name : xs) = FunctionCall name (parseInput xs)
+parseFunctionCall xs = Literal (-1234)
 
 isFunctionDef :: [Token] -> Bool
 isFunctionDef [] = False
@@ -160,7 +163,7 @@ isFunctionCall (x : xs) = isFunctionCall xs
 parseInterface :: [Token] -> Expression
 parseInterface tokens
     | isFunctionDef tokens = parseFunction tokens
-    | isFunctionCall tokens = parseFunctionCall tokens
+    -- | isFunctionCall tokens = parseFunctionCall tokens
     | otherwise = parse tokens
 
 float :: String -> Float
