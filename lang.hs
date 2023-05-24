@@ -89,8 +89,11 @@ subExpr ((ParenTok ")") : xs) b num = subExpr xs (ParenTok ")" : b) (num - 1)
 subExpr ((ParenTok "(") : xs) b num = subExpr xs (ParenTok "(" : b) (num + 1)
 subExpr (x : xs) b num = subExpr xs (x : b) num
 
+
+
 parseFirst :: [Token] -> [Token]
 parseFirst (ParenTok "(" : xs) = subExpr xs [] 0
+parseFirst (IdenTok x : ParenTok "(" : xs) = IdenTok x : (addParens $ subExpr xs [] 0)
 parseFirst (x : xs) = [x]
 parseFirst [] = []
 
