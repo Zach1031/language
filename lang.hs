@@ -7,7 +7,9 @@ import Control.Applicative
 {-# LANGUAGE ViewPatterns #-}
 
 data Expression =
-    Binary Op Expression Expression | Literal Float | Var String | Function String [String] Expression | FunctionCall String [Expression] | Error String
+    Binary Op Expression Expression | Literal Float | Var String |
+    Function String [String] Expression | FunctionCall String [Expression] | MultiLine String [String] [([Expression], Expression)] |
+    Error String
     deriving Eq
 
 instance Show Expression where
@@ -16,9 +18,10 @@ instance Show Expression where
     show (Var name) = "(Var " ++ show name ++ ")"
     show (Function name vars expr) = show name ++ " (" ++ show vars ++ ") -> " ++ show expr
     show (FunctionCall name vars) = show name ++ " (" ++ show vars ++  ")"
+    show (MultiLine name vars conditions) = show name ++ " " ++ show vars ++ " " ++ show conditions
     show (Error message) = show "ERROR: " ++ message
 
-data Op = Add | Sub | Mult | Div
+data Op = Add | Sub | Mult | Div | Equal | NotEqual
     deriving (Eq, Show)
 
 access :: String -> [(String, Float)] -> Float
@@ -26,8 +29,23 @@ access name ((key, val):xs)
     | name == key = val
     | otherwise = access name xs
 
+matchConditions :: [Expression] -> [Expression] -> Bool
+matchConditions [] [] = True
+matchConditions (Var x : xs) (y : ys) = matchConditions xs ys
+matchConditions (x : xs) (y : ys)
+    | x == y = matchConditions xs ys
+    | otherwise = False
+
+findCond :: [([Expression], Expression)] -> [Expression] -> Expression
+findCond [] x = Literal 12
+findCond ((currConds, val) : xs) conds
+    | matchConditions currConds conds = val
+    | otherwise = findCond xs conds
+
+
 evaluateFunction :: Expression -> [Expression] -> [(String, Expression)] -> Float
 evaluateFunction (Function name vars expr) vals state = evaluate (subFunction expr (zip vars (map (\x -> evaluate x state) vals))) state
+evaluateFunction (MultiLine name vars conds) vals state = evaluate (subFunction (findCond conds vals) (zip vars (map (\x -> evaluate x state) vals))) state
 
 subFunction :: Expression -> [(String, Float)] -> Expression
 subFunction (Var x) state = Literal (access x state)
@@ -60,10 +78,10 @@ evaluate :: Expression -> [(String, Expression)] -> Float
 evaluate (Binary op a b) state = evaluateBinary op a b state
 evaluate (Literal val) state = evaluateLiteral val
 evaluate (FunctionCall name exprs) state = evaluateFunction (findFunction name state) exprs state
-evaluate x state = -123
+evaluate x state = (trace $ "Evaluation Error: " ++ "Expression: " ++ show x ++ "State: " ++ show state) (-123)
 
 data Token =
-    NumTok String | OpTok String | ParenTok String | IdenTok String | Pointer | NewLine | Comma | Colon
+    NumTok String | OpTok String | ParenTok String | IdenTok String | Pointer | NewLine | Comma | Colon | Bar
     deriving Show
 
 instance Eq Token where
@@ -75,6 +93,7 @@ instance Eq Token where
     (==) Pointer Pointer = True
     (==) NewLine NewLine = True
     (==) Comma Comma = True
+    (==) Bar Bar = True
     (==) _ _ = False
 
 op :: String -> Op
@@ -88,6 +107,7 @@ subExpr ((ParenTok ")") : xs) b 0 = reverse b
 subExpr ((ParenTok ")") : xs) b num = subExpr xs (ParenTok ")" : b) (num - 1)
 subExpr ((ParenTok "(") : xs) b num = subExpr xs (ParenTok "(" : b) (num + 1)
 subExpr (x : xs) b num = subExpr xs (x : b) num
+subExpr x y z = [Bar]
 
 
 
@@ -115,9 +135,8 @@ parse :: [Token] -> Expression
 parse (ParenTok "(" : xs) = parse $ subExpr xs [] 0
 parse ((OpTok x) : xs) = Binary (op x) (parse $ parseFirst xs) (parse $ parseSecond xs)
 parse (NumTok x : xs) = Literal (read x :: Float)
-parse (IdenTok x : xs)
-    | isFunctionCall (IdenTok x : xs) = parseFunctionCall (IdenTok x : xs)
-    | otherwise = Var x
+parse (IdenTok x : ParenTok "(" : xs) = parseFunctionCall (IdenTok x : ParenTok "(" : xs)
+parse (IdenTok x : xs) = Var x
 parse x = Error $ "Cannot parse " ++ show x
 
 parseVars :: [Token] -> Bool -> [String] -> [String]
@@ -131,11 +150,38 @@ splitExpr (Pointer : xs) = xs
 splitExpr (x : xs) = splitExpr xs
 
 parseName :: [Token] -> String
-parseName (IdenTok x : ParenTok "(": xs) = x
+parseName (IdenTok x : ParenTok "(": xs) =  x
 parseName (x : xs) = parseName xs
 
+isMultiLine :: [Token] -> Bool
+isMultiLine [] = False
+isMultiLine (Bar : xs) = True
+isMultiLine (x : xs) = isMultiLine xs
+
+-- parseConditions :: [[Token]] -> [([Expression], Expression)]
+-- parseConditions [] = []
+-- parseConditions (x : xs) = do
+--                             split <- splitByToken x Pointer []
+
+--                             return (map , parseInterface (last split))
+
+parsePattern :: [Token] -> [Expression]
+parsePattern = map (\ x -> parseInterface [x])
+
+parseConditions  :: [[Token]] -> [([Expression], Expression)] -> [([Expression], Expression)]
+parseConditions xs exprs
+  = foldl
+      (\ exprs x
+         -> (parsePattern (head $ splitByToken x Pointer []),
+             parseInterface (last $ splitByToken x Pointer []))
+              : exprs)
+      exprs xs
+
 parseFunction :: [Token] -> Expression
-parseFunction tokens = Function (parseName tokens) (parseVars tokens False []) (parseInterface (splitExpr tokens))
+parseFunction (IdenTok "run" : xs) = Function "run" [] (parseInterface (splitExpr xs))
+parseFunction tokens
+    | isMultiLine tokens = MultiLine (parseName tokens) (parseVars tokens False []) (reverse $ parseConditions (tail $ splitByToken tokens Bar []) [])
+    | otherwise = Function (parseName tokens) (parseVars tokens False []) (parseInterface (splitExpr tokens))
 
 parseInput :: [Token] -> [Expression]
 parseInput (ParenTok "(" : xs) = map parseInterface (splitByToken (init xs) Comma [])
@@ -148,11 +194,6 @@ isFunctionDef :: [Token] -> Bool
 isFunctionDef [] = False
 isFunctionDef (Pointer : xs) = True
 isFunctionDef (x : xs) = isFunctionDef xs
-
-isMultiFunction :: [Token] -> Bool
-isMultiFunction [] = False
-isMultiFunction (Colon : xs) = True
-isMultiFunction (x : xs) = isMultiFunction xs
 
 isFunctionCall :: [Token] -> Bool
 isFunctionCall [] = False
@@ -171,13 +212,13 @@ splitByToken :: [Token] -> Token -> [[Token]] -> [[Token]]
 splitByToken [] tok y = reverse $ map reverse y
 splitByToken (x : xs) tok [] = splitByToken xs tok [[x]]
 splitByToken (x : xs) tok (y : ys)
-    | x == Comma = splitByToken xs tok ([] : y : ys)
+    | x == tok = splitByToken xs tok ([] : y : ys)
     | otherwise = splitByToken xs tok ((x : y) : ys)
 
 specialCharacter :: Char -> Bool
 specialCharacter x
     | x == '+' || x == '-' || x == '*' || x == '/'
-        || x == '(' || x == ')' || x == ',' = True
+        || x == '(' || x == ')' || x == ',' || x == '|' = True
     | otherwise = False
 
 createTok :: Char -> Token
@@ -185,6 +226,7 @@ createTok x
     | x == '+' || x == '-' || x == '*' || x == '/' = OpTok [x]
     | x == '(' || x == ')' = ParenTok [x]
     | x == ',' = Comma
+    | x == '|' = Bar
 
 append :: String -> [Token] -> [Token]
 append "" b = b
@@ -194,7 +236,6 @@ append a b
 
 containsPointer :: String -> Bool
 containsPointer x = head x : [head (tail x)] == "->"
-
 
 lexer :: String -> String -> [Token] -> [Token]
 lexer [] a b = reverse $ append a b
@@ -219,9 +260,20 @@ lexerInterface x = lexer x [] []
 
 extractName :: Expression -> String
 extractName (Function name vars expr) = name
+extractName (MultiLine name vars conditions) = name
+
+joinFunc :: [[Token]] -> [[Token]]
+joinFunc [x] = [x]
+joinFunc (x : (Bar : ys) : xs) = joinFunc $ (x ++ (Bar : ys)) : xs
+joinFunc (x : xs) = x : joinFunc xs
+
+run :: [(String, Expression)] -> Float
+run (("run", Function name vars expr) : xs) = evaluate expr xs
+run (x : xs) = run (xs ++ [x])
 
 consumeStatements :: [[Token]] -> [(String, Expression)] -> Float
-consumeStatements [x] state = evaluate (parseInterface x) state
+-- consumeStatements [x] state = evaluate (parseInterface x) state
+consumeStatements [] state = run state
 consumeStatements (x:xs) a = consumeStatements xs ((extractName $ parseInterface x, parseInterface x) : a)
 
 determineOutput :: Expression -> [(String, Expression)] -> IO()
@@ -229,15 +281,18 @@ determineOutput (Function name varse expr) state = putStr ""
 determineOutput x state = print (evaluate x state)
 
 appendState :: Expression -> [(String, Expression)] -> [(String, Expression)]
-appendState (Function name expr vars) state = (name, Function name expr vars) : state
+appendState (Function name expr vars) state
+    | name /= "run" = (name, Function name expr vars) : state
+    | otherwise = state
 appendState x state = state
-
-appendAll :: [Expression] -> [(String, Expression)] -> [(String, Expression)]
-appendAll xs state = foldl (flip appendState) state xs
 
 substring :: Int -> Int -> String -> String
 substring start end text = take (end - start) (drop start text)
 
+fileName :: String -> String
+fileName name
+    | last (init name) : [last name] == ".z" = name
+    | otherwise = name ++ ".z"
 
 runRepl :: [(String, Expression)] -> IO()
 runRepl state = do
@@ -248,10 +303,13 @@ runRepl state = do
                 then do
                     if substring 0 4 input == "load"
                         then do
-                            file <- readFile (substring 5 (length input) input ++ ".txt")
+                            let name = fileName (substring 5 (length input) input)
+                            file <- readFile name
                             let statements = map lexerInterface (splitByChar file [])
 
-                            putStrLn $ "Loaded from " ++ substring 5 (length input) input ++ "..."
+                            putStrLn $ "Loaded from " ++ name ++ "..."
+
+                            print state
 
                             runRepl $ foldl (flip appendState) state (map parseInterface statements)
                     else do
@@ -262,14 +320,22 @@ runRepl state = do
             else
                 print "Goodbye!"
 
-main :: IO ()
+-- main :: IO ()
+-- main = do
+--   args <- getArgs
+--   if null args
+--     then runRepl []
+--     else
+--         if length args == 1
+--             then do
+--                 file <- readFile $ head args
+--                 --print $ consumeStatements (map lexerInterface (splitByChar file [])) []
+--                 print $ consumeStatements (joinFunc (map lexerInterface (splitByChar file []))) []
+--             else putStrLn "Usage: ./lang for the console and ./lang [FILENAME] to run file"
+
+--MAIN FOR TESTING
+main :: IO()
 main = do
-  args <- getArgs
-  if null args
-    then runRepl []
-    else
-        if length args == 1
-            then do
-                file <- readFile $ head args
-                print $ consumeStatements (map lexerInterface (splitByChar file [])) []
-            else putStrLn "Usage: ./lang for the console and ./lang [FILENAME] to run file"
+        file <- readFile "foo.z"
+
+        print $ consumeStatements (joinFunc (map lexerInterface (splitByChar file []))) []
