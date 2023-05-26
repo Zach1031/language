@@ -12,6 +12,8 @@ data Expression =
     Error String
     deriving Eq
 
+data Result = Float | String | Bool deriving Eq
+
 instance Show Expression where
     show (Binary op a b) = "(" ++ show op ++ " " ++ show a ++ " " ++ show b ++ ")"
     show (Literal val) = "(Literal " ++ show val ++ ")"
@@ -37,7 +39,7 @@ matchConditions (x : xs) (y : ys)
     | otherwise = False
 
 findCond :: [([Expression], Expression)] -> [Expression] -> Expression
-findCond [] x = Literal 12
+findCond [] x = Literal (-123456789)
 findCond ((currConds, val) : xs) conds
     | matchConditions currConds conds = val
     | otherwise = findCond xs conds
@@ -113,7 +115,7 @@ subExpr x y z = [Bar]
 
 parseFirst :: [Token] -> [Token]
 parseFirst (ParenTok "(" : xs) = subExpr xs [] 0
-parseFirst (IdenTok x : ParenTok "(" : xs) = IdenTok x : (addParens $ subExpr xs [] 0)
+parseFirst (IdenTok x : ParenTok "(" : xs) = IdenTok x : addParens (subExpr xs [] 0)
 parseFirst (x : xs) = [x]
 parseFirst [] = []
 
@@ -157,13 +159,6 @@ isMultiLine :: [Token] -> Bool
 isMultiLine [] = False
 isMultiLine (Bar : xs) = True
 isMultiLine (x : xs) = isMultiLine xs
-
--- parseConditions :: [[Token]] -> [([Expression], Expression)]
--- parseConditions [] = []
--- parseConditions (x : xs) = do
---                             split <- splitByToken x Pointer []
-
---                             return (map , parseInterface (last split))
 
 parsePattern :: [Token] -> [Expression]
 parsePattern = map (\ x -> parseInterface [x])
@@ -231,17 +226,25 @@ createTok x
 append :: String -> [Token] -> [Token]
 append "" b = b
 append a b
-    | isDigit $ last a = NumTok (reverse a) : b
+    | isDigit $ head a = NumTok (reverse a) : b
     | otherwise = IdenTok (reverse a) : b
 
 containsPointer :: String -> Bool
 containsPointer x = head x : [head (tail x)] == "->"
+
+isNegative :: String -> Bool
+isNegative (x : y : xs)
+    | x == '-' && isDigit y = True
+    | otherwise = False
+isNegative x = False
+
 
 lexer :: String -> String -> [Token] -> [Token]
 lexer [] a b = reverse $ append a b
 lexer (x:xs) a b
     | x == ' ' =  lexer xs [] (append a b )
     | x == '\n' = lexer (tail xs) [] (append a b)
+    | isNegative (x : xs) = lexer xs (x : a) (append a b)
     | containsPointer (x:xs) = lexer (tail xs) [] (Pointer : append a b)
     | specialCharacter x = lexer xs [] (createTok x : append a b)
     | otherwise = lexer xs (x : a) b
@@ -272,7 +275,6 @@ run (("run", Function name vars expr) : xs) = evaluate expr xs
 run (x : xs) = run (xs ++ [x])
 
 consumeStatements :: [[Token]] -> [(String, Expression)] -> Float
--- consumeStatements [x] state = evaluate (parseInterface x) state
 consumeStatements [] state = run state
 consumeStatements (x:xs) a = consumeStatements xs ((extractName $ parseInterface x, parseInterface x) : a)
 
