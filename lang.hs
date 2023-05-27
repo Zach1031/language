@@ -61,7 +61,9 @@ evaluateBinary :: Op -> Expression -> Expression -> [(String, Expression)] -> Fl
 evaluateBinary Add a b state  = evaluate a state + evaluate b state
 evaluateBinary Sub a b state = evaluate a state - evaluate b state
 evaluateBinary Mult a b state = evaluate a state * evaluate b state
-evaluateBinary Div a b state =evaluate a state / evaluate b state
+evaluateBinary Div a b state = evaluate a state / evaluate b state
+evaluateBinary Equal a b state = if a == b then 1 else 0
+evaluateBinary NotEqual a b state = if a /= b then 1 else 0
 
 
 evaluateLiteral :: Float -> Float
@@ -83,7 +85,8 @@ evaluate (FunctionCall name exprs) state = evaluateFunction (findFunction name s
 evaluate x state = (trace $ "Evaluation Error: " ++ "Expression: " ++ show x ++ "State: " ++ show state) (-123)
 
 data Token =
-    NumTok String | OpTok String | ParenTok String | IdenTok String | Pointer | NewLine | Comma | Colon | Bar
+    NumTok String | OpTok String | ParenTok String | IdenTok String | 
+    Pointer | NewLine | Comma | Colon | Bar
     deriving Show
 
 instance Eq Token where
@@ -103,6 +106,8 @@ op "+" = Add
 op "-" = Sub
 op "*" = Mult
 op "/" = Div
+op "==" = Equal
+op "/=" = NotEqual
 
 subExpr :: [Token] -> [Token] -> Int -> [Token]
 subExpr ((ParenTok ")") : xs) b 0 = reverse b
@@ -232,6 +237,12 @@ append a b
 containsPointer :: String -> Bool
 containsPointer x = head x : [head (tail x)] == "->"
 
+containsEqual :: String -> Bool
+containsEqual x = head x : [head (tail x)] == "=="
+
+containsNotEqual :: String -> Bool
+containsNotEqual x = head x : [head (tail x)] == "!="
+
 isNegative :: String -> Bool
 isNegative (x : y : xs)
     | x == '-' && isDigit y = True
@@ -246,6 +257,8 @@ lexer (x:xs) a b
     | x == '\n' = lexer (tail xs) [] (append a b)
     | isNegative (x : xs) = lexer xs (x : a) (append a b)
     | containsPointer (x:xs) = lexer (tail xs) [] (Pointer : append a b)
+    | containsEqual (x:xs) = lexer (tail xs) [] (OpTok "==" : append a b)
+    | containsNotEqual (x:xs) = lexer (tail xs) [] (OpTok "!=" : append a b)
     | specialCharacter x = lexer xs [] (createTok x : append a b)
     | otherwise = lexer xs (x : a) b
 
