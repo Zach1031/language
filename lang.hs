@@ -56,6 +56,7 @@ subFunction (Var x) state = Literal (access x state)
 subFunction (Binary op expr1 expr2) state = Binary op (subFunction expr1 state) (subFunction expr2 state)
 subFunction (Literal x) state = Literal x
 subFunction (FunctionCall name vars) state = FunctionCall name (map (\x -> subFunction x state) vars)
+subFunction (Ternary cond first second) state = (trace $ show cond ) Ternary (subFunction cond state) (subFunction first state) (subFunction second state)
 subFunction x state = Error $ "Cannot parse subfunction " ++ show x
 
 
@@ -90,10 +91,10 @@ evaluate (Binary op a b) state = evaluateBinary op a b state
 evaluate (Literal val) state = evaluateLiteral val
 evaluate (FunctionCall name exprs) state = evaluateFunction (findFunction name state) exprs state
 evaluate (Ternary cond first second) state = (trace $ show cond) evaluateTernary (evaluate cond state) first second state
-evaluate x state = (trace $ "Evaluation Error: " ++ "Expression: " ++ show x ++ "State: " ++ show state) (-123)
+evaluate x state = (trace $ show x) (-123)
 
 data Token =
-    NumTok String | OpTok String | ParenTok String | IdenTok String | 
+    NumTok String | OpTok String | ParenTok String | IdenTok String |
     Pointer | NewLine | Comma | Colon | Bar |
     If | Then | Else
     deriving Show
@@ -394,6 +395,6 @@ main :: IO()
 main = do
         file <- readFile "foo.z"
 
-        -- print $ consumeStatements (joinFunc (map lexerInterface (splitByChar file []))) []
+        print $ consumeStatements (joinFunc (map lexerInterface (splitByChar file []))) []
 
-        print $  (map parseInterface (joinFunc (map lexerInterface (splitByChar file []))))
+        --print $  (map parseInterface (joinFunc (map lexerInterface (splitByChar file []))))
