@@ -9,6 +9,7 @@ import Control.Applicative
 data Expression =
     Binary Op Expression Expression | Literal Float | Var String |
     Function String [String] Expression | FunctionCall String [Expression] | MultiLine String [String] [([Expression], Expression)] |
+    Ternary Expression Expression Expression |
     Error String
     deriving Eq
 
@@ -22,6 +23,7 @@ instance Show Expression where
     show (FunctionCall name vars) = show name ++ " (" ++ show vars ++  ")"
     show (MultiLine name vars conditions) = show name ++ " " ++ show vars ++ " " ++ show conditions
     show (Error message) = show "ERROR: " ++ message
+    show (Ternary cond first second) = show "If " ++ show cond ++ show " Then " ++ show first ++ " Else " ++ show second
 
 data Op = Add | Sub | Mult | Div | Equal | NotEqual
     deriving (Eq, Show)
@@ -73,6 +75,11 @@ evaluateExpression :: Expression -> [(String, Expression)] -> Float
 evaluateExpression (Binary op a b) state = evaluateBinary op a b state
 evaluateExpression (Literal val) state = evaluateLiteral val
 
+evaluateTernary :: Float -> Expression -> Expression -> [(String, Expression)] -> Float
+evaluateTernary result first second state
+    | result == 0 = evaluate second state
+    | otherwise = evaluate first state
+
 findFunction :: String -> [(String, Expression)] -> Expression
 findFunction request ((name, func) : xs)
     | request == name = func
@@ -82,11 +89,13 @@ evaluate :: Expression -> [(String, Expression)] -> Float
 evaluate (Binary op a b) state = evaluateBinary op a b state
 evaluate (Literal val) state = evaluateLiteral val
 evaluate (FunctionCall name exprs) state = evaluateFunction (findFunction name state) exprs state
+evaluate (Ternary cond first second) state = (trace $ show cond) evaluateTernary (evaluate cond state) first second state
 evaluate x state = (trace $ "Evaluation Error: " ++ "Expression: " ++ show x ++ "State: " ++ show state) (-123)
 
 data Token =
     NumTok String | OpTok String | ParenTok String | IdenTok String | 
-    Pointer | NewLine | Comma | Colon | Bar
+    Pointer | NewLine | Comma | Colon | Bar |
+    If | Then | Else
     deriving Show
 
 instance Eq Token where
@@ -99,6 +108,9 @@ instance Eq Token where
     (==) NewLine NewLine = True
     (==) Comma Comma = True
     (==) Bar Bar = True
+    (==) If If = True
+    (==) Then Then = True
+    (==) Else Else = True
     (==) _ _ = False
 
 op :: String -> Op
@@ -138,9 +150,31 @@ addParens x = ParenTok "(" : reverse (ParenTok ")" : reverse x)
 parseSecond :: [Token] -> [Token]
 parseSecond x = remove (addParens $ parseFirst x) x
 
+parseCond :: [Token] -> [Token]
+parseCond (Then : xs) = []
+parseCond (x : xs) = x : parseCond xs
+
+parseThen :: [Token] -> Bool -> [Token]
+parseThen (Else : xs) cond = []
+parseThen (x : xs) cond
+    | x == Then = parseThen xs True
+    | cond = x : parseThen xs cond
+    | otherwise = parseThen xs cond
+
+parseElse :: [Token] -> Bool -> [Token]
+parseElse [] cond = []
+parseElse (x : xs) cond
+    | x == Else = parseElse xs True
+    | cond = x : parseElse xs cond
+    | otherwise = parseElse xs cond
+
+
+-- parseElse :: [Token] -> [Token]
+
 parse :: [Token] -> Expression
 parse (ParenTok "(" : xs) = parse $ subExpr xs [] 0
 parse ((OpTok x) : xs) = Binary (op x) (parse $ parseFirst xs) (parse $ parseSecond xs)
+parse (If : xs) = Ternary (parse $ parseCond xs) (parse $ parseThen xs False) (parse $ parseElse xs False)
 parse (NumTok x : xs) = Literal (read x :: Float)
 parse (IdenTok x : ParenTok "(" : xs) = parseFunctionCall (IdenTok x : ParenTok "(" : xs)
 parse (IdenTok x : xs) = Var x
@@ -228,11 +262,18 @@ createTok x
     | x == ',' = Comma
     | x == '|' = Bar
 
+checkReserved :: String -> [Token] -> [Token]
+checkReserved a b
+    | a == "if" = If : b
+    | a == "then" = Then : b
+    | a == "else" = Else : b
+    | otherwise = IdenTok a : b
+
 append :: String -> [Token] -> [Token]
 append "" b = b
 append a b
     | isDigit $ head a = NumTok (reverse a) : b
-    | otherwise = IdenTok (reverse a) : b
+    | otherwise = checkReserved (reverse a) b
 
 containsPointer :: String -> Bool
 containsPointer x = head x : [head (tail x)] == "->"
@@ -353,4 +394,6 @@ main :: IO()
 main = do
         file <- readFile "foo.z"
 
-        print $ consumeStatements (joinFunc (map lexerInterface (splitByChar file []))) []
+        -- print $ consumeStatements (joinFunc (map lexerInterface (splitByChar file []))) []
+
+        print $  (map parseInterface (joinFunc (map lexerInterface (splitByChar file []))))

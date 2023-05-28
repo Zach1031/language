@@ -1,6 +1,2 @@
-test (x y)
-    | 0 0 -> 0
-    | -1 12 -> 1
-    | x y -> * x y
-
-run -> == 1 1
+eq (x y) -> if == x y then 1 else 2
+run -> eq (2, 2)
