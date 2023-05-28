@@ -25,7 +25,7 @@ instance Show Expression where
     show (Error message) = show "ERROR: " ++ message
     show (Ternary cond first second) = show "If " ++ show cond ++ show " Then " ++ show first ++ " Else " ++ show second
 
-data Op = Add | Sub | Mult | Div | Equal | NotEqual
+data Op = Add | Sub | Mult | Div | Equal | NotEqual | Greater | GreaterEQ | Less | LessEQ
     deriving (Eq, Show)
 
 access :: String -> [(String, Float)] -> Float
@@ -56,7 +56,7 @@ subFunction (Var x) state = Literal (access x state)
 subFunction (Binary op expr1 expr2) state = Binary op (subFunction expr1 state) (subFunction expr2 state)
 subFunction (Literal x) state = Literal x
 subFunction (FunctionCall name vars) state = FunctionCall name (map (\x -> subFunction x state) vars)
-subFunction (Ternary cond first second) state = (trace $ show cond ) Ternary (subFunction cond state) (subFunction first state) (subFunction second state)
+subFunction (Ternary cond first second) state = Ternary (subFunction cond state) (subFunction first state) (subFunction second state)
 subFunction x state = Error $ "Cannot parse subfunction " ++ show x
 
 
@@ -65,8 +65,13 @@ evaluateBinary Add a b state  = evaluate a state + evaluate b state
 evaluateBinary Sub a b state = evaluate a state - evaluate b state
 evaluateBinary Mult a b state = evaluate a state * evaluate b state
 evaluateBinary Div a b state = evaluate a state / evaluate b state
-evaluateBinary Equal a b state = if a == b then 1 else 0
-evaluateBinary NotEqual a b state = if a /= b then 1 else 0
+evaluateBinary Equal a b state = if evaluate a state == evaluate b state then 1 else 0
+evaluateBinary NotEqual a b state = if evaluate a state /= evaluate b state then 1 else 0
+evaluateBinary Greater a b state = if evaluate a state > evaluate b state then 1 else 0
+evaluateBinary GreaterEQ a b state = if evaluate a state >= evaluate b state then 1 else 0
+evaluateBinary Less a b state = if evaluate a state < evaluate b state then 1 else 0
+evaluateBinary LessEQ a b state = if evaluate a state <= evaluate b state then 1 else 0
+
 
 
 evaluateLiteral :: Float -> Float
@@ -90,7 +95,7 @@ evaluate :: Expression -> [(String, Expression)] -> Float
 evaluate (Binary op a b) state = evaluateBinary op a b state
 evaluate (Literal val) state = evaluateLiteral val
 evaluate (FunctionCall name exprs) state = evaluateFunction (findFunction name state) exprs state
-evaluate (Ternary cond first second) state = (trace $ show cond) evaluateTernary (evaluate cond state) first second state
+evaluate (Ternary cond first second) state = evaluateTernary (evaluate cond state) first second state
 evaluate x state = (trace $ show x) (-123)
 
 data Token =
@@ -120,7 +125,11 @@ op "-" = Sub
 op "*" = Mult
 op "/" = Div
 op "==" = Equal
-op "/=" = NotEqual
+op "!=" = NotEqual
+op ">" = Greater
+op ">=" = GreaterEQ
+op "<" = Less
+op "<=" = LessEQ
 
 subExpr :: [Token] -> [Token] -> Int -> [Token]
 subExpr ((ParenTok ")") : xs) b 0 = reverse b
@@ -253,12 +262,13 @@ splitByToken (x : xs) tok (y : ys)
 specialCharacter :: Char -> Bool
 specialCharacter x
     | x == '+' || x == '-' || x == '*' || x == '/'
-        || x == '(' || x == ')' || x == ',' || x == '|' = True
+        || x == '(' || x == ')' || x == ',' || x == '|'
+        || x == '<' || x == '>' = True
     | otherwise = False
 
 createTok :: Char -> Token
 createTok x
-    | x == '+' || x == '-' || x == '*' || x == '/' = OpTok [x]
+    | x == '+' || x == '-' || x == '*' || x == '/' || x == '<' || x == '>' = OpTok [x]
     | x == '(' || x == ')' = ParenTok [x]
     | x == ',' = Comma
     | x == '|' = Bar
@@ -291,6 +301,18 @@ isNegative (x : y : xs)
     | otherwise = False
 isNegative x = False
 
+containsDouble :: String -> Bool
+containsDouble x
+    | tok == "->" || tok == "==" || tok == "!="
+        || tok == ">=" || tok == "<=" = True
+    | otherwise = False
+    where tok = head x : [head (tail x)]
+
+createDouble :: String -> Token
+createDouble x
+    | tok == "->" = Pointer
+    | otherwise = OpTok tok
+    where tok = head x : [head (tail x)]
 
 lexer :: String -> String -> [Token] -> [Token]
 lexer [] a b = reverse $ append a b
@@ -298,9 +320,10 @@ lexer (x:xs) a b
     | x == ' ' =  lexer xs [] (append a b )
     | x == '\n' = lexer (tail xs) [] (append a b)
     | isNegative (x : xs) = lexer xs (x : a) (append a b)
-    | containsPointer (x:xs) = lexer (tail xs) [] (Pointer : append a b)
-    | containsEqual (x:xs) = lexer (tail xs) [] (OpTok "==" : append a b)
-    | containsNotEqual (x:xs) = lexer (tail xs) [] (OpTok "!=" : append a b)
+    -- | containsPointer (x:xs) = lexer (tail xs) [] (Pointer : append a b)
+    -- | containsEqual (x:xs) = lexer (tail xs) [] (OpTok "==" : append a b)
+    -- | containsNotEqual (x:xs) = lexer (tail xs) [] (OpTok "!=" : append a b)
+    | containsDouble (x : xs) = lexer (tail xs) [] (createDouble (x : xs) : append a b)
     | specialCharacter x = lexer xs [] (createTok x : append a b)
     | otherwise = lexer xs (x : a) b
 
