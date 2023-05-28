@@ -91,10 +91,14 @@ findFunction request ((name, func) : xs)
     | request == name = func
     | otherwise = findFunction request xs
 
+evalParam :: [Expression] -> [(String, Expression)] -> [Expression]
+evalParam xs state = map (\ x -> Literal (evaluate x state)) xs
+
 evaluate :: Expression -> [(String, Expression)] -> Float
 evaluate (Binary op a b) state = evaluateBinary op a b state
 evaluate (Literal val) state = evaluateLiteral val
-evaluate (FunctionCall name exprs) state = evaluateFunction (findFunction name state) exprs state
+evaluate (FunctionCall name exprs) state = evaluateFunction (findFunction name state) (map (\ x -> Literal (evaluate x state)) exprs) state
+--evaluate (FunctionCall name exprs) state = evaluateFunction (findFunction name state) exprs state
 evaluate (Ternary cond first second) state = evaluateTernary (evaluate cond state) first second state
 evaluate x state = (trace $ show x) (-123)
 
