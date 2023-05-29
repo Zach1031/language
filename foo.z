@@ -2,9 +2,13 @@ fact (x)
     | 1 -> 1
     | x -> * x fact (- x 1)
 
+# This is a comment
+
 fib (x)
     | 0 -> 0
     | 1 -> 1
     | x -> + fib (- x 1) fib (- x 2)
 
-run -> fact (5)
+big (x y) -> + fib (x) fact (y)
+
+run -> big (3, 3)

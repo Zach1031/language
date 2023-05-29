@@ -352,6 +352,12 @@ joinFunc [x] = [x]
 joinFunc (x : (Bar : ys) : xs) = joinFunc $ (x ++ (Bar : ys)) : xs
 joinFunc (x : xs) = x : joinFunc xs
 
+removeComments :: [String] -> [String]
+removeComments [] = []
+removeComments (x : xs)
+    | head x == '#' = removeComments xs
+    | otherwise = x : removeComments xs 
+
 run :: [(String, Expression)] -> Float
 run (("run", Function name vars expr) : xs) = evaluate expr xs
 run (x : xs) = run (xs ++ [x])
@@ -422,6 +428,6 @@ main :: IO()
 main = do
         file <- readFile "foo.z"
 
-        print $ consumeStatements (joinFunc (map lexerInterface (splitByChar file []))) []
+        print $ consumeStatements (joinFunc (map lexerInterface (removeComments $ splitByChar file []))) []
 
         --print $  (map parseInterface (joinFunc (map lexerInterface (splitByChar file []))))
