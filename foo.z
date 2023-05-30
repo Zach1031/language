@@ -2,13 +2,12 @@ fact (x)
     | 1 -> 1
     | x -> * x fact (- x 1)
 
-# This is a comment
-
-fib (x)
+# Calculates the nth fibonacci number
+fib (n)
     | 0 -> 0
     | 1 -> 1
-    | x -> + fib (- x 1) fib (- x 2)
+    | n -> + fib (- n 1) fib (- n 2)
 
 big (x y) -> + fib (x) fact (y)
 
-run -> big (3, 3)
+run -> big (7, 12)
