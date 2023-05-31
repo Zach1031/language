@@ -68,7 +68,7 @@ subFunction (Binary op expr1 expr2) state = Binary op (subFunction expr1 state) 
 subFunction (Literal x) state = Literal x
 subFunction (FunctionCall name vars) state = FunctionCall name (map (\x -> subFunction x state) vars)
 subFunction (Ternary cond first second) state = Ternary (subFunction cond state) (subFunction first state) (subFunction second state)
-subFunction x state = (trace $ show x) Literal $ Float 12345
+subFunction x state = Literal $ Float 12345
 --subFunction x state = Error $ "Cannot parse subfunction " ++ show x
 
 evaluateBinaryNum :: Op -> Float -> Float -> [(String, Expression)] -> Result
