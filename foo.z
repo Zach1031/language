@@ -1,13 +1,3 @@
-fact (x)
-    | 1 -> 1
-    | x -> * x fact (- x 1)
+test (x) -> + x 4
 
-# Calculates the nth fibonacci number
-fib (n)
-    | 0 -> 0
-    | 1 -> 1
-    | n -> + fib (- n 1) fib (- n 2)
-
-big (x y) -> + fib (x) fact (y)
-
-run -> big (7, 12)
+run -> test (12)

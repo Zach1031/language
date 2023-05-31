@@ -7,13 +7,10 @@ import Control.Applicative
 {-# LANGUAGE ViewPatterns #-}
 
 data Expression =
-    Binary Op Expression Expression | Literal Float | Var String |
+    Binary Op Expression Expression | Literal Result | Var String |
     Function String [String] Expression | FunctionCall String [Expression] | MultiLine String [String] [([Expression], Expression)] |
-    Ternary Expression Expression Expression |
-    Error String
+    Ternary Expression Expression Expression
     deriving Eq
-
-data Result = Float | String | Bool deriving Eq
 
 instance Show Expression where
     show (Binary op a b) = "(" ++ show op ++ " " ++ show a ++ " " ++ show b ++ ")"
@@ -22,13 +19,27 @@ instance Show Expression where
     show (Function name vars expr) = show name ++ " (" ++ show vars ++ ") -> " ++ show expr
     show (FunctionCall name vars) = show name ++ " (" ++ show vars ++  ")"
     show (MultiLine name vars conditions) = show name ++ " " ++ show vars ++ " " ++ show conditions
-    show (Error message) = show "ERROR: " ++ message
+    --show (Error message) = show "ERROR: " ++ message
     show (Ternary cond first second) = show "If " ++ show cond ++ show " Then " ++ show first ++ " Else " ++ show second
+
+data Result = Float Float | String String | Bool Bool | Error String deriving Eq
+
+trimFloat :: Float -> String
+trimFloat x
+    | x == fromIntegral (floor x) = show $ floor x
+    | otherwise = show x
+
+instance Show Result where
+    show (Float val) = trimFloat val
+    show (String str) = show str
+    show (Bool bool) = show bool
+    show (Error message) = show message
+
 
 data Op = Add | Sub | Mult | Div | Equal | NotEqual | Greater | GreaterEQ | Less | LessEQ
     deriving (Eq, Show)
 
-access :: String -> [(String, Float)] -> Float
+access :: String -> [(String, Result)] -> Result
 access name ((key, val):xs)
     | name == key = val
     | otherwise = access name xs
@@ -41,49 +52,53 @@ matchConditions (x : xs) (y : ys)
     | otherwise = False
 
 findCond :: [([Expression], Expression)] -> [Expression] -> Expression
-findCond [] x = Literal (-123456789)
+--findCond [] x = Float (-123456789)
 findCond ((currConds, val) : xs) conds
     | matchConditions currConds conds = val
     | otherwise = findCond xs conds
 
 
-evaluateFunction :: Expression -> [Expression] -> [(String, Expression)] -> Float
+evaluateFunction :: Expression -> [Expression] -> [(String, Expression)] -> Result
 evaluateFunction (Function name vars expr) vals state = evaluate (subFunction expr (zip vars (map (\x -> evaluate x state) vals))) state
 evaluateFunction (MultiLine name vars conds) vals state = evaluate (subFunction (findCond conds vals) (zip vars (map (\x -> evaluate x state) vals))) state
 
-subFunction :: Expression -> [(String, Float)] -> Expression
+subFunction :: Expression -> [(String, Result)] -> Expression
 subFunction (Var x) state = Literal (access x state)
 subFunction (Binary op expr1 expr2) state = Binary op (subFunction expr1 state) (subFunction expr2 state)
 subFunction (Literal x) state = Literal x
 subFunction (FunctionCall name vars) state = FunctionCall name (map (\x -> subFunction x state) vars)
 subFunction (Ternary cond first second) state = Ternary (subFunction cond state) (subFunction first state) (subFunction second state)
-subFunction x state = Error $ "Cannot parse subfunction " ++ show x
+subFunction x state = (trace $ show x) Literal $ Float 12345
+--subFunction x state = Error $ "Cannot parse subfunction " ++ show x
 
+evaluateBinaryNum :: Op -> Float -> Float -> [(String, Expression)] -> Result
+evaluateBinaryNum Add a b state  = Float $ a + b
+evaluateBinaryNum Sub a b state = Float $ a - b
+evaluateBinaryNum Mult a b state = Float $ a * b
+evaluateBinaryNum Div a b state = Float $ a / b
+evaluateBinaryNum Equal a b state = if a == b then Bool True else Bool False
+evaluateBinaryNum NotEqual a b state = if a == b then Bool True else Bool False
+evaluateBinaryNum Greater a b state = if a == b then Bool True else Bool False
+evaluateBinaryNum GreaterEQ a b state = if a == b then Bool True else Bool False
+evaluateBinaryNum Less a b state = if a == b then Bool True else Bool False
+evaluateBinaryNum LessEQ a b state = if a == b then Bool True else Bool False
 
-evaluateBinary :: Op -> Expression -> Expression -> [(String, Expression)] -> Float
-evaluateBinary Add a b state  = evaluate a state + evaluate b state
-evaluateBinary Sub a b state = evaluate a state - evaluate b state
-evaluateBinary Mult a b state = evaluate a state * evaluate b state
-evaluateBinary Div a b state = evaluate a state / evaluate b state
-evaluateBinary Equal a b state = if evaluate a state == evaluate b state then 1 else 0
-evaluateBinary NotEqual a b state = if evaluate a state /= evaluate b state then 1 else 0
-evaluateBinary Greater a b state = if evaluate a state > evaluate b state then 1 else 0
-evaluateBinary GreaterEQ a b state = if evaluate a state >= evaluate b state then 1 else 0
-evaluateBinary Less a b state = if evaluate a state < evaluate b state then 1 else 0
-evaluateBinary LessEQ a b state = if evaluate a state <= evaluate b state then 1 else 0
+evaluateBinary :: Op -> Result -> Result -> [(String, Expression)] -> Result
+evaluateBinary op (Float x) (Float y) state = evaluateBinaryNum op x y state
+-- evaluateBinary Add a b state  = (trace $ show a) Float $ a + b
+-- evaluateBinary Sub a b state = Float $ a - b
+-- evaluateBinary Mult a b state = Float $ a * b
+-- evaluateBinary Div a b state = Float $ a / b 
+evaluateBinary Equal a b state = if a == b then Bool True else Bool False
+evaluateBinary NotEqual a b state = if a == b then Bool True else Bool False
+evaluateBinary Greater a b state = if a == b then Bool True else Bool False
+evaluateBinary GreaterEQ a b state = if a == b then Bool True else Bool False
+evaluateBinary Less a b state = if a == b then Bool True else Bool False
+evaluateBinary LessEQ a b state = if a == b then Bool True else Bool False
 
-
-
-evaluateLiteral :: Float -> Float
-evaluateLiteral x = x
-
-evaluateExpression :: Expression -> [(String, Expression)] -> Float
-evaluateExpression (Binary op a b) state = evaluateBinary op a b state
-evaluateExpression (Literal val) state = evaluateLiteral val
-
-evaluateTernary :: Float -> Expression -> Expression -> [(String, Expression)] -> Float
+evaluateTernary :: Result -> Expression -> Expression -> [(String, Expression)] -> Result
 evaluateTernary result first second state
-    | result == 0 = evaluate second state
+    | result == Bool False = evaluate second state
     | otherwise = evaluate first state
 
 findFunction :: String -> [(String, Expression)] -> Expression
@@ -94,13 +109,18 @@ findFunction request ((name, func) : xs)
 evalParam :: [Expression] -> [(String, Expression)] -> [Expression]
 evalParam xs state = map (\ x -> Literal (evaluate x state)) xs
 
-evaluate :: Expression -> [(String, Expression)] -> Float
-evaluate (Binary op a b) state = evaluateBinary op a b state
-evaluate (Literal val) state = evaluateLiteral val
+evaluate :: Expression -> [(String, Expression)] -> Result
+evaluate (Binary op a b) state = evaluateBinary op (evaluate a state) (evaluate b state) state
 evaluate (FunctionCall name exprs) state = evaluateFunction (findFunction name state) (map (\ x -> Literal (evaluate x state)) exprs) state
 --evaluate (FunctionCall name exprs) state = evaluateFunction (findFunction name state) exprs state
 evaluate (Ternary cond first second) state = evaluateTernary (evaluate cond state) first second state
-evaluate x state = (trace $ show x) (-123)
+evaluate (Literal val) state = val
+--evaluate x state = (trace $ show "Debug | x: " ++ show x ++ " State: " ++ show state ) (Float 12345)
+evaluate x state = Float 1234
+--evaluate x state = (trace $ show x) Float (-123)
+-- evaluate x state = 
+--     case x of 
+--         Result -> x
 
 data Token =
     NumTok String | OpTok String | ParenTok String | IdenTok String |
@@ -189,10 +209,10 @@ parse :: [Token] -> Expression
 parse (ParenTok "(" : xs) = parse $ subExpr xs [] 0
 parse ((OpTok x) : xs) = Binary (op x) (parse $ parseFirst xs) (parse $ parseSecond xs)
 parse (If : xs) = Ternary (parse $ parseCond xs) (parse $ parseThen xs False) (parse $ parseElse xs False)
-parse (NumTok x : xs) = Literal (read x :: Float)
+parse (NumTok x : xs) = Literal $ Float (read x :: Float)
 parse (IdenTok x : ParenTok "(" : xs) = parseFunctionCall (IdenTok x : ParenTok "(" : xs)
 parse (IdenTok x : xs) = Var x
-parse x = Error $ "Cannot parse " ++ show x
+--parse x = Error $ "Cannot parse " ++ show x
 
 parseVars :: [Token] -> Bool -> [String] -> [String]
 parseVars (ParenTok "(" : xs) reading vars = parseVars xs True vars
@@ -236,7 +256,7 @@ parseInput (ParenTok "(" : xs) = map parseInterface (splitByToken (init xs) Comm
 
 parseFunctionCall :: [Token] -> Expression
 parseFunctionCall (IdenTok name : xs) = FunctionCall name (parseInput xs)
-parseFunctionCall xs = Literal (-1234)
+--parseFunctionCall xs = Literal $ Float (-1234)
 
 isFunctionDef :: [Token] -> Bool
 isFunctionDef [] = False
@@ -356,13 +376,13 @@ removeComments :: [String] -> [String]
 removeComments [] = []
 removeComments (x : xs)
     | head x == '#' = removeComments xs
-    | otherwise = x : removeComments xs 
+    | otherwise = x : removeComments xs
 
-run :: [(String, Expression)] -> Float
+run :: [(String, Expression)] -> Result
 run (("run", Function name vars expr) : xs) = evaluate expr xs
 run (x : xs) = run (xs ++ [x])
 
-consumeStatements :: [[Token]] -> [(String, Expression)] -> Float
+consumeStatements :: [[Token]] -> [(String, Expression)] -> Result
 consumeStatements [] state = run state
 consumeStatements (x:xs) a = consumeStatements xs ((extractName $ parseInterface x, parseInterface x) : a)
 
