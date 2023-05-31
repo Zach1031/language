@@ -19,7 +19,6 @@ instance Show Expression where
     show (Function name vars expr) = show name ++ " (" ++ show vars ++ ") -> " ++ show expr
     show (FunctionCall name vars) = show name ++ " (" ++ show vars ++  ")"
     show (MultiLine name vars conditions) = show name ++ " " ++ show vars ++ " " ++ show conditions
-    --show (Error message) = show "ERROR: " ++ message
     show (Ternary cond first second) = show "If " ++ show cond ++ show " Then " ++ show first ++ " Else " ++ show second
 
 data Result = Float Float | String String | Bool Bool | Error String deriving Eq
@@ -112,15 +111,9 @@ evalParam xs state = map (\ x -> Literal (evaluate x state)) xs
 evaluate :: Expression -> [(String, Expression)] -> Result
 evaluate (Binary op a b) state = evaluateBinary op (evaluate a state) (evaluate b state) state
 evaluate (FunctionCall name exprs) state = evaluateFunction (findFunction name state) (map (\ x -> Literal (evaluate x state)) exprs) state
---evaluate (FunctionCall name exprs) state = evaluateFunction (findFunction name state) exprs state
 evaluate (Ternary cond first second) state = evaluateTernary (evaluate cond state) first second state
 evaluate (Literal val) state = val
---evaluate x state = (trace $ show "Debug | x: " ++ show x ++ " State: " ++ show state ) (Float 12345)
 evaluate x state = Float 1234
---evaluate x state = (trace $ show x) Float (-123)
--- evaluate x state = 
---     case x of 
---         Result -> x
 
 data Token =
     NumTok String | OpTok String | ParenTok String | IdenTok String |
@@ -202,9 +195,6 @@ parseElse (x : xs) cond
     | cond = x : parseElse xs cond
     | otherwise = parseElse xs cond
 
-
--- parseElse :: [Token] -> [Token]
-
 parse :: [Token] -> Expression
 parse (ParenTok "(" : xs) = parse $ subExpr xs [] 0
 parse ((OpTok x) : xs) = Binary (op x) (parse $ parseFirst xs) (parse $ parseSecond xs)
@@ -212,7 +202,6 @@ parse (If : xs) = Ternary (parse $ parseCond xs) (parse $ parseThen xs False) (p
 parse (NumTok x : xs) = Literal $ Float (read x :: Float)
 parse (IdenTok x : ParenTok "(" : xs) = parseFunctionCall (IdenTok x : ParenTok "(" : xs)
 parse (IdenTok x : xs) = Var x
---parse x = Error $ "Cannot parse " ++ show x
 
 parseVars :: [Token] -> Bool -> [String] -> [String]
 parseVars (ParenTok "(" : xs) reading vars = parseVars xs True vars
@@ -256,7 +245,6 @@ parseInput (ParenTok "(" : xs) = map parseInterface (splitByToken (init xs) Comm
 
 parseFunctionCall :: [Token] -> Expression
 parseFunctionCall (IdenTok name : xs) = FunctionCall name (parseInput xs)
---parseFunctionCall xs = Literal $ Float (-1234)
 
 isFunctionDef :: [Token] -> Bool
 isFunctionDef [] = False
@@ -344,9 +332,6 @@ lexer (x:xs) a b
     | x == ' ' =  lexer xs [] (append a b )
     | x == '\n' = lexer (tail xs) [] (append a b)
     | isNegative (x : xs) = lexer xs (x : a) (append a b)
-    -- | containsPointer (x:xs) = lexer (tail xs) [] (Pointer : append a b)
-    -- | containsEqual (x:xs) = lexer (tail xs) [] (OpTok "==" : append a b)
-    -- | containsNotEqual (x:xs) = lexer (tail xs) [] (OpTok "!=" : append a b)
     | containsDouble (x : xs) = lexer (tail xs) [] (createDouble (x : xs) : append a b)
     | specialCharacter x = lexer xs [] (createTok x : append a b)
     | otherwise = lexer xs (x : a) b
