@@ -1,1 +1,3 @@
-run -> true
+oneorzero (x) -> || (== x 1) (== x 0)
+
+run -> oneorzero (-12)

@@ -38,7 +38,7 @@ instance Show Result where
     show (Error message) = show message
 
 
-data Op = Add | Sub | Mult | Div | Equal | NotEqual | Greater | GreaterEQ | Less | LessEQ
+data Op = Add | Sub | Mult | Div | Equal | NotEqual | Greater | GreaterEQ | Less | LessEQ | And | Or
     deriving (Eq, Show)
 
 access :: String -> [(String, Result)] -> Result
@@ -93,11 +93,20 @@ evaluateBinaryStr Equal a b = if a == b then Bool True else Bool False
 evaluateBinaryStr NotEqual a b = if a /= b then Bool True else Bool False
 evaluateBinaryStr op a b = Error $ "Cannot perform operation " ++ show op ++ " on strings"
 
+evaluateBool :: Op -> Bool -> Bool -> Result
+evaluateBool Equal a b = if a == b then Bool True else Bool False
+evaluateBool NotEqual a b = if a == b then Bool True else Bool False
+evaluateBool And a b = if a && b then Bool True else Bool False
+evaluateBool Or a b = if a || b then Bool True else Bool False
+evaluateBool op a b = Error $ "Cannot perform operation " ++ show op ++ " on booleans"
+
+
 evaluateBinary :: Op -> Result -> Result -> Result
 evaluateBinary op (Float a) (Float b) = evaluateBinaryNum op a b
 evaluateBinary op (String a) (String b) = evaluateBinaryStr op a b
 evaluateBinary op (Float a) (String b) = evaluateBinaryStr op (show a) b
 evaluateBinary op (String a) (Float b) = evaluateBinaryStr op a (show b)
+evaluateBinary op (Bool a) (Bool b) = evaluateBool op a b
 evaluateBinary op a b = Error $ "Cannot preform operation " ++ show op ++ " with given types"
 
 evaluateTernary :: Result -> Expression -> Expression -> [(String, Expression)] -> Result
@@ -154,6 +163,8 @@ op ">" = Greater
 op ">=" = GreaterEQ
 op "<" = Less
 op "<=" = LessEQ
+op "&&" = And
+op "||" = Or
 
 data ParseErr = MissingBody String | UnexpectedChar String | MissingParen String | MissingStr String | MissingOperand String deriving (Show, Typeable)
 
@@ -336,7 +347,7 @@ isNegative x = False
 containsDouble :: String -> Bool
 containsDouble x
     | tok == "->" || tok == "==" || tok == "!="
-        || tok == ">=" || tok == "<=" = True
+        || tok == ">=" || tok == "<=" || tok == "&&" || tok == "||" = True
     | otherwise = False
     where tok = head x : [head (tail x)]
 
