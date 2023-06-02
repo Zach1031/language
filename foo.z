@@ -1,3 +1,1 @@
-test (x y) -> if == x y then True else False
-
-run -> test(1, 1)
+run -> true

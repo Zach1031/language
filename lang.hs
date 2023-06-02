@@ -2,6 +2,9 @@ import System.Directory.Internal.Prelude
 import Debug.Trace
 import Data.Char
 import Control.Applicative
+import Control.Exception
+import Data.Data (Typeable)
+import qualified Control.Exception as Control.Expception
 
 {-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE ViewPatterns #-}
@@ -51,15 +54,18 @@ matchConditions (x : xs) (y : ys)
     | otherwise = False
 
 findCond :: [([Expression], Expression)] -> [Expression] -> Expression
---findCond [] x = Float (-123456789)
 findCond ((currConds, val) : xs) conds
     | matchConditions currConds conds = val
     | otherwise = findCond xs conds
 
 
 evaluateFunction :: Expression -> [Expression] -> [(String, Expression)] -> Result
-evaluateFunction (Function name vars expr) vals state = evaluate (subFunction expr (zip vars (map (\x -> evaluate x state) vals))) state
-evaluateFunction (MultiLine name vars conds) vals state = evaluate (subFunction (findCond conds vals) (zip vars (map (\x -> evaluate x state) vals))) state
+evaluateFunction (Function name vars expr) vals state 
+    | length vars /= length vals = Error $ "Incorrect number of arguments for function " ++ show name ++ ". Expected " ++ show (length vars) ++ " but given " ++ show (length vals)
+    | otherwise = evaluate' (subFunction expr (zip vars (map (\x -> evaluate' x state) vals))) state
+evaluateFunction (MultiLine name vars conds) vals state
+    | length vars /= length vals = Error $ "Incorrect number of arguments for function " ++ show name ++ ". Expected " ++ show (length vars) ++ " but given " ++ show (length vals)
+    | otherwise = (trace $ show vars ++ " : " ++show vals) evaluate' (subFunction (findCond conds vals) (zip vars (map (\x -> evaluate' x state) vals))) state
 
 subFunction :: Expression -> [(String, Result)] -> Expression
 subFunction (Var x) state = Literal (access x state)
@@ -68,37 +74,36 @@ subFunction (Literal x) state = Literal x
 subFunction (FunctionCall name vars) state = FunctionCall name (map (\x -> subFunction x state) vars)
 subFunction (Ternary cond first second) state = Ternary (subFunction cond state) (subFunction first state) (subFunction second state)
 subFunction x state = Literal $ Float 12345
---subFunction x state = Error $ "Cannot parse subfunction " ++ show x
 
-evaluateBinaryNum :: Op -> Float -> Float -> [(String, Expression)] -> Result
-evaluateBinaryNum Add a b state  = Float $ a + b
-evaluateBinaryNum Sub a b state = Float $ a - b
-evaluateBinaryNum Mult a b state = Float $ a * b
-evaluateBinaryNum Div a b state = Float $ a / b
-evaluateBinaryNum Equal a b state = if a == b then Bool True else Bool False
-evaluateBinaryNum NotEqual a b state = if a == b then Bool True else Bool False
-evaluateBinaryNum Greater a b state = if a == b then Bool True else Bool False
-evaluateBinaryNum GreaterEQ a b state = if a == b then Bool True else Bool False
-evaluateBinaryNum Less a b state = if a == b then Bool True else Bool False
-evaluateBinaryNum LessEQ a b state = if a == b then Bool True else Bool False
+evaluateBinaryNum :: Op -> Float -> Float -> Result
+evaluateBinaryNum Add a b  = Float $ a + b
+evaluateBinaryNum Sub a b = Float $ a - b
+evaluateBinaryNum Mult a b = Float $ a * b
+evaluateBinaryNum Div a b = Float $ a / b
+evaluateBinaryNum Equal a b = if a == b then Bool True else Bool False
+evaluateBinaryNum NotEqual a b = if a /= b then Bool True else Bool False
+evaluateBinaryNum Greater a b = if a > b then Bool True else Bool False
+evaluateBinaryNum GreaterEQ a b = if a >= b then Bool True else Bool False
+evaluateBinaryNum Less a b = if a < b then Bool True else Bool False
+evaluateBinaryNum LessEQ a b = if a <= b then Bool True else Bool False
 
-evaluateBinary :: Op -> Result -> Result -> [(String, Expression)] -> Result
-evaluateBinary op (Float x) (Float y) state = evaluateBinaryNum op x y state
--- evaluateBinary Add a b state  = (trace $ show a) Float $ a + b
--- evaluateBinary Sub a b state = Float $ a - b
--- evaluateBinary Mult a b state = Float $ a * b
--- evaluateBinary Div a b state = Float $ a / b 
-evaluateBinary Equal a b state = if a == b then Bool True else Bool False
-evaluateBinary NotEqual a b state = if a == b then Bool True else Bool False
-evaluateBinary Greater a b state = if a == b then Bool True else Bool False
-evaluateBinary GreaterEQ a b state = if a == b then Bool True else Bool False
-evaluateBinary Less a b state = if a == b then Bool True else Bool False
-evaluateBinary LessEQ a b state = if a == b then Bool True else Bool False
+evaluateBinaryStr :: Op -> String -> String -> Result
+evaluateBinaryStr Add a b = String $ a ++ b
+evaluateBinaryStr Equal a b = if a == b then Bool True else Bool False
+evaluateBinaryStr NotEqual a b = if a /= b then Bool True else Bool False
+evaluateBinaryStr op a b = Error $ "Cannot perform operation " ++ show op ++ " on strings"
+
+evaluateBinary :: Op -> Result -> Result -> Result
+evaluateBinary op (Float a) (Float b) = evaluateBinaryNum op a b
+evaluateBinary op (String a) (String b) = evaluateBinaryStr op a b
+evaluateBinary op (Float a) (String b) = evaluateBinaryStr op (show a) b
+evaluateBinary op (String a) (Float b) = evaluateBinaryStr op a (show b)
+evaluateBinary op a b = Error $ "Cannot preform operation " ++ show op ++ " with given types"
 
 evaluateTernary :: Result -> Expression -> Expression -> [(String, Expression)] -> Result
 evaluateTernary result first second state
-    | result == Bool False = evaluate second state
-    | otherwise = evaluate first state
+    | result == Bool False = evaluate' second state
+    | otherwise = evaluate' first state
 
 findFunction :: String -> [(String, Expression)] -> Expression
 findFunction request ((name, func) : xs)
@@ -106,18 +111,18 @@ findFunction request ((name, func) : xs)
     | otherwise = findFunction request xs
 
 evalParam :: [Expression] -> [(String, Expression)] -> [Expression]
-evalParam xs state = map (\ x -> Literal (evaluate x state)) xs
+evalParam xs state = map (\ x -> Literal (evaluate' x state)) xs
 
-evaluate :: Expression -> [(String, Expression)] -> Result
-evaluate (Binary op a b) state = evaluateBinary op (evaluate a state) (evaluate b state) state
-evaluate (FunctionCall name exprs) state = evaluateFunction (findFunction name state) (map (\ x -> Literal (evaluate x state)) exprs) state
-evaluate (Ternary cond first second) state = evaluateTernary (evaluate cond state) first second state
-evaluate (Literal val) state = val
-evaluate x state = Float 1234
+evaluate' :: Expression -> [(String, Expression)] -> Result
+evaluate' (Binary op a b) state = evaluateBinary op (evaluate' a state) (evaluate' b state)
+evaluate' (FunctionCall name exprs) state = evaluateFunction (findFunction name state) (map (\ x -> Literal (evaluate' x state)) exprs) state
+evaluate' (Ternary cond first second) state = evaluateTernary (evaluate' cond state) first second state
+evaluate' (Literal val) state = val
+evaluate' x state = Float 1234
 
 data Token =
-    NumTok String | OpTok String | ParenTok String | IdenTok String |
-    Pointer | NewLine | Comma | Colon | Bar |
+    NumTok String | OpTok String | ParenTok String | IdenTok String | BoolTok Bool |
+    Pointer | NewLine | Comma | Colon | Bar | Quote |
     If | Then | Else
     deriving Show
 
@@ -127,6 +132,7 @@ instance Eq Token where
     (==) (NumTok a) (NumTok b) = a == b
     (==) (ParenTok a) (ParenTok b) = a == b
     (==) (IdenTok a) (IdenTok b) = a == b
+    (==) (BoolTok a) (BoolTok b) = a == b
     (==) Pointer Pointer = True
     (==) NewLine NewLine = True
     (==) Comma Comma = True
@@ -134,6 +140,7 @@ instance Eq Token where
     (==) If If = True
     (==) Then Then = True
     (==) Else Else = True
+    (==) Quote Quote = True
     (==) _ _ = False
 
 op :: String -> Op
@@ -148,6 +155,10 @@ op ">=" = GreaterEQ
 op "<" = Less
 op "<=" = LessEQ
 
+data ParseErr = MissingBody String | UnexpectedChar String | MissingParen String | MissingStr String | MissingOperand String deriving (Show, Typeable)
+
+instance Exception ParseErr
+
 subExpr :: [Token] -> [Token] -> Int -> [Token]
 subExpr ((ParenTok ")") : xs) b 0 = reverse b
 subExpr ((ParenTok ")") : xs) b num = subExpr xs (ParenTok ")" : b) (num - 1)
@@ -161,7 +172,7 @@ parseFirst :: [Token] -> [Token]
 parseFirst (ParenTok "(" : xs) = subExpr xs [] 0
 parseFirst (IdenTok x : ParenTok "(" : xs) = IdenTok x : addParens (subExpr xs [] 0)
 parseFirst (x : xs) = [x]
-parseFirst [] = []
+parseFirst [] = throw $ MissingOperand "Missing operand for binary operator"
 
 remove :: Eq a => [a] -> [a] -> [a]
 remove [] a = a
@@ -175,7 +186,10 @@ addParens :: [Token] -> [Token]
 addParens x = ParenTok "(" : reverse (ParenTok ")" : reverse x)
 
 parseSecond :: [Token] -> [Token]
-parseSecond x = remove (addParens $ parseFirst x) x
+parseSecond x
+    | null result = throw $ MissingOperand "Missing operand for binary operator"
+    | otherwise = result
+    where result =  remove (addParens $ parseFirst x) x
 
 parseCond :: [Token] -> [Token]
 parseCond (Then : xs) = []
@@ -200,6 +214,7 @@ parse (ParenTok "(" : xs) = parse $ subExpr xs [] 0
 parse ((OpTok x) : xs) = Binary (op x) (parse $ parseFirst xs) (parse $ parseSecond xs)
 parse (If : xs) = Ternary (parse $ parseCond xs) (parse $ parseThen xs False) (parse $ parseElse xs False)
 parse (NumTok x : xs) = Literal $ Float (read x :: Float)
+parse (BoolTok x : xs) = Literal $ Bool x
 parse (IdenTok x : ParenTok "(" : xs) = parseFunctionCall (IdenTok x : ParenTok "(" : xs)
 parse (IdenTok x : xs) = Var x
 
@@ -210,12 +225,14 @@ parseVars (IdenTok x : xs) True vars = parseVars xs True (x : vars)
 parseVars (IdenTok x : xs) False vars = parseVars xs False vars
 
 splitExpr :: [Token] -> [Token]
-splitExpr (Pointer : xs) = xs
+splitExpr (Pointer : xs) 
+    | null xs = throw $ MissingBody "Function missing body"
+    | otherwise = xs
 splitExpr (x : xs) = splitExpr xs
 
 parseName :: [Token] -> String
 parseName (IdenTok x : ParenTok "(": xs) =  x
-parseName (x : xs) = parseName xs
+parseName (x : xs) = throw ( UnexpectedChar $ "Unexpected character: " ++ show x)
 
 isMultiLine :: [Token] -> Bool
 isMultiLine [] = False
@@ -275,7 +292,7 @@ specialCharacter :: Char -> Bool
 specialCharacter x
     | x == '+' || x == '-' || x == '*' || x == '/'
         || x == '(' || x == ')' || x == ',' || x == '|'
-        || x == '<' || x == '>' = True
+        || x == '<' || x == '>' || x == '"'= True
     | otherwise = False
 
 createTok :: Char -> Token
@@ -284,12 +301,15 @@ createTok x
     | x == '(' || x == ')' = ParenTok [x]
     | x == ',' = Comma
     | x == '|' = Bar
+    | x == '"' = Quote
 
 checkReserved :: String -> [Token] -> [Token]
 checkReserved a b
     | a == "if" = If : b
     | a == "then" = Then : b
     | a == "else" = Else : b
+    | a == "true" = BoolTok True : b
+    | a == "false" = BoolTok False : b
     | otherwise = IdenTok a : b
 
 append :: String -> [Token] -> [Token]
@@ -364,7 +384,7 @@ removeComments (x : xs)
     | otherwise = x : removeComments xs
 
 run :: [(String, Expression)] -> Result
-run (("run", Function name vars expr) : xs) = evaluate expr xs
+run (("run", Function name vars expr) : xs) = evaluate' expr xs
 run (x : xs) = run (xs ++ [x])
 
 consumeStatements :: [[Token]] -> [(String, Expression)] -> Result
@@ -373,7 +393,7 @@ consumeStatements (x:xs) a = consumeStatements xs ((extractName $ parseInterface
 
 determineOutput :: Expression -> [(String, Expression)] -> IO()
 determineOutput (Function name varse expr) state = putStr ""
-determineOutput x state = print (evaluate x state)
+determineOutput x state = print (evaluate' x state)
 
 appendState :: Expression -> [(String, Expression)] -> [(String, Expression)]
 appendState (Function name expr vars) state
@@ -433,6 +453,12 @@ main :: IO()
 main = do
         file <- readFile "foo.z"
 
-        print $ consumeStatements (joinFunc (map lexerInterface (removeComments $ splitByChar file []))) []
+        Control.Exception.catch (print $ consumeStatements (joinFunc (map lexerInterface (removeComments $ splitByChar file []))) []) handler
+            where
+                handler :: ErrorCall -> IO()
+                handler = print 
+
+        --print $ (joinFunc (map lexerInterface (removeComments $ splitByChar file [])))
+
 
         --print $  (map parseInterface (joinFunc (map lexerInterface (splitByChar file []))))
