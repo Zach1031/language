@@ -1,1 +1,3 @@
-fib (x: float, y: bool) -> 1
+test (x: float, y: bool) -> + x y
+
+run -> test(true, 2)

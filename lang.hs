@@ -11,7 +11,7 @@ import qualified Control.Exception as Control.Expception
 
 data Expression =
     Binary Op Expression Expression | Literal Result | Var String |
-    Function String [String] Expression | FunctionCall String [Expression] | MultiLine String [String] [([Expression], Expression)] |
+    Function String [(String, String)] Expression | FunctionCall String [Expression] | MultiLine String [(String, String)] [([Expression], Expression)] |
     Ternary Expression Expression Expression
     deriving Eq
 
@@ -37,13 +37,17 @@ instance Show Result where
     show (Bool bool) = if bool then "true" else "false"
     show (Error message) = show message
 
+getType :: Result -> String
+getType (Float x) = "float"
+getType (String x) = "string"
+getType (Bool x) = "bool"
 
 data Op = Add | Sub | Mult | Div | Equal | NotEqual | Greater | GreaterEQ | Less | LessEQ | And | Or
     deriving (Eq, Show)
 
-access :: String -> [(String, Result)] -> Result
-access name ((key, val):xs)
-    | name == key = val
+access :: String -> [((String, String), Result)] -> Result
+access name (((key, typee), val):xs)
+    | name == key = if matchingType typee val then val else throw $ MismatchedTypes $ "Expecting type " ++ typee ++ " but given type " ++ getType val
     | otherwise = access name xs
 
 matchConditions :: [Expression] -> [Expression] -> Bool
@@ -60,14 +64,20 @@ findCond ((currConds, val) : xs) conds
 
 
 evaluateFunction :: Expression -> [Expression] -> [(String, Expression)] -> Result
-evaluateFunction (Function name vars expr) vals state 
+evaluateFunction (Function name vars expr) vals state
     | length vars /= length vals = Error $ "Incorrect number of arguments for function " ++ name ++ ". Expected " ++ show (length vars) ++ " but given " ++ show (length vals)
     | otherwise = evaluate' (subFunction expr (zip vars (map (\x -> evaluate' x state) vals))) state
 evaluateFunction (MultiLine name vars conds) vals state
     | length vars /= length vals = Error $ "Incorrect number of arguments for function " ++ name ++ ". Expected " ++ show (length vars) ++ " but given " ++ show (length vals)
     | otherwise = evaluate' (subFunction (findCond conds vals) (zip vars (map (\x -> evaluate' x state) vals))) state
 
-subFunction :: Expression -> [(String, Result)] -> Expression
+matchingType :: String -> Result -> Bool
+matchingType "float" (Float x) = True
+matchingType "string" (String x) = True
+matchingType "bool" (Bool x) = True
+matchingType x y = False
+
+subFunction :: Expression -> [((String, String), Result)] -> Expression
 subFunction (Var x) state = Literal (access x state)
 subFunction (Binary op expr1 expr2) state = Binary op (subFunction expr1 state) (subFunction expr2 state)
 subFunction (Literal x) state = Literal x
@@ -163,7 +173,8 @@ op "<=" = LessEQ
 op "&&" = And
 op "||" = Or
 
-data ParseErr = MissingBody String | UnexpectedChar String | MissingParen String | MissingStr String | MissingOperand String deriving (Show, Typeable)
+data ParseErr = MissingBody String | UnexpectedChar String | MissingParen String | MissingStr String | MissingOperand String |
+    MismatchedTypes String deriving (Show, Typeable)
 
 instance Exception ParseErr
 
@@ -226,14 +237,14 @@ parse (BoolTok x : xs) = Literal $ Bool x
 parse (IdenTok x : ParenTok "(" : xs) = parseFunctionCall (IdenTok x : ParenTok "(" : xs)
 parse (IdenTok x : xs) = Var x
 
-parseVars :: [Token] -> [String] -> [String]
-parseVars (IdenTok x : ParenTok "(": xs) vars = (trace $ show $ IdenTok x : xs) parseVars xs vars
-parseVars (ParenTok ")" : xs) vars = reverse vars
-parseVars (IdenTok x : xs)  vars = parseVars xs (x : vars)
+parseVars :: [Token] -> [(String, String)] -> [(String, String)]
+parseVars (IdenTok x : ParenTok "(": xs) vars = parseVars xs vars
+parseVars (IdenTok x : Colon : IdenTok y : ParenTok ")" : xs)  vars = reverse ((x, y) : vars)
+parseVars (IdenTok x : Colon : IdenTok y : Comma : xs)  vars = parseVars xs ((x, y) : vars)
 
 
 splitExpr :: [Token] -> [Token]
-splitExpr (Pointer : xs) 
+splitExpr (Pointer : xs)
     | null xs = throw $ MissingBody "Function missing body"
     | otherwise = xs
 splitExpr (x : xs) = splitExpr xs
@@ -301,7 +312,7 @@ specialCharacter x
     | x == '+' || x == '-' || x == '*' || x == '/'
         || x == '(' || x == ')' || x == '[' || x == ']'
         || x == ',' || x == '|'
-        || x == '<' || x == '>' 
+        || x == '<' || x == '>'
         || x == '"' || x == ':' = True
     | otherwise = False
 
@@ -464,12 +475,12 @@ main :: IO()
 main = do
         file <- readFile "foo.z"
 
-        -- Control.Exception.catch (print $ consumeStatements (joinFunc (map lexerInterface (removeComments $ splitByChar file []))) []) handler
-        --     where
-        --         handler :: ErrorCall -> IO()
-        --         handler = print 
+        Control.Exception.catch (print $ consumeStatements (joinFunc (map lexerInterface (removeComments $ splitByChar file []))) []) handler
+            where
+                handler :: ErrorCall -> IO()
+                handler = print
 
-        print $ (joinFunc (map lexerInterface (removeComments $ splitByChar file [])))
+        -- print $ (joinFunc (map lexerInterface (removeComments $ splitByChar file [])))
 
 
         --print $  (map parseInterface (joinFunc (map lexerInterface (splitByChar file []))))
