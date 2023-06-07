@@ -1,3 +1,3 @@
-test (x: float, y: bool) -> + x y
+test (x: float, y: float) -> + x y
 
-run -> test(true, 2)
+run -> [+ 1 2, 12, == 1 1]

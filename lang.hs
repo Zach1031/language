@@ -17,30 +17,38 @@ data Expression =
 
 instance Show Expression where
     show (Binary op a b) = "(" ++ show op ++ " " ++ show a ++ " " ++ show b ++ ")"
-    show (Literal val) = "(Literal " ++ show val ++ ")"
+    show (Literal val) = show val
     show (Var name) = "(Var " ++ show name ++ ")"
     show (Function name vars expr) = show name ++ " (" ++ show vars ++ ") -> " ++ show expr
     show (FunctionCall name vars) = show name ++ " (" ++ show vars ++  ")"
     show (MultiLine name vars conditions) = show name ++ " " ++ show vars ++ " " ++ show conditions
     show (Ternary cond first second) = show "If " ++ show cond ++ show " Then " ++ show first ++ " Else " ++ show second
 
-data Result = Float Float | String String | Bool Bool | Error String deriving Eq
+data Result = Float Float | String String | Bool Bool | List [Expression] | Error String deriving Eq
 
-trimFloat :: Float -> String
-trimFloat x
-    | x == fromIntegral (floor x) = show $ floor x
-    | otherwise = show x
+
 
 instance Show Result where
     show (Float val) = trimFloat val
     show (String str) = show str
     show (Bool bool) = if bool then "true" else "false"
     show (Error message) = show message
+    show (List exprs) = show exprs
+
+showExprList :: [Expression] -> String
+showExprList [] = " "
+showExprList (x : xs) = " " ++ show x ++ showExprList (xs)
+
+trimFloat :: Float -> String
+trimFloat x
+    | x == fromIntegral (floor x) = show $ floor x
+    | otherwise = show x
 
 getType :: Result -> String
 getType (Float x) = "float"
 getType (String x) = "string"
 getType (Bool x) = "bool"
+getType (List x) = "list"
 
 data Op = Add | Sub | Mult | Div | Equal | NotEqual | Greater | GreaterEQ | Less | LessEQ | And | Or
     deriving (Eq, Show)
@@ -128,11 +136,16 @@ findFunction request ((name, func) : xs)
 evalParam :: [Expression] -> [(String, Expression)] -> [Expression]
 evalParam xs state = map (\ x -> Literal (evaluate' x state)) xs
 
+evaluateLiteral :: Result -> [(String, Expression)] -> Result
+evaluateLiteral (List exprs) state = List (map (\x -> Literal $ evaluate' x state) exprs)
+evaluateLiteral x state = x
+
 evaluate' :: Expression -> [(String, Expression)] -> Result
 evaluate' (Binary op a b) state = evaluateBinary op (evaluate' a state) (evaluate' b state)
 evaluate' (FunctionCall name exprs) state = evaluateFunction (findFunction name state) (map (\ x -> Literal (evaluate' x state)) exprs) state
 evaluate' (Ternary cond first second) state = evaluateTernary (evaluate' cond state) first second state
-evaluate' (Literal val) state = val
+--evaluate' (List exprs) state = List $ map (\x -> evaluate x state) exprs
+evaluate' (Literal val) state = evaluateLiteral val state
 evaluate' (Var val) state = Error $ "Undefined variable: " ++ val
 evaluate' x state = Error $ "Unexepcted expression" ++ show x
 
@@ -228,6 +241,11 @@ parseElse (x : xs) cond
     | cond = x : parseElse xs cond
     | otherwise = parseElse xs cond
 
+parseList :: [Token] -> [Expression]
+parseList x 
+    | last x /= ParenTok "]" = throw $ UnexpectedChar $ "Unexpected character " ++ show (last x)
+    | otherwise = map parse (splitByToken (init x) Comma [])
+
 parse :: [Token] -> Expression
 parse (ParenTok "(" : xs) = parse $ subExpr xs [] 0
 parse ((OpTok x) : xs) = Binary (op x) (parse $ parseFirst xs) (parse $ parseSecond xs)
@@ -236,6 +254,8 @@ parse (NumTok x : xs) = Literal $ Float (read x :: Float)
 parse (BoolTok x : xs) = Literal $ Bool x
 parse (IdenTok x : ParenTok "(" : xs) = parseFunctionCall (IdenTok x : ParenTok "(" : xs)
 parse (IdenTok x : xs) = Var x
+parse (ParenTok "[" : xs) = Literal $ List $ parseList xs
+parse x = (trace $ show x) Literal $ Float 12
 
 parseVars :: [Token] -> [(String, String)] -> [(String, String)]
 parseVars (IdenTok x : ParenTok "(": xs) vars = parseVars xs vars
@@ -480,7 +500,7 @@ main = do
                 handler :: ErrorCall -> IO()
                 handler = print
 
-        -- print $ (joinFunc (map lexerInterface (removeComments $ splitByChar file [])))
+        --print $ (joinFunc (map lexerInterface (removeComments $ splitByChar file [])))
 
 
         --print $  (map parseInterface (joinFunc (map lexerInterface (splitByChar file []))))
