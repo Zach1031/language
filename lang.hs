@@ -24,15 +24,12 @@ instance Show Expression where
     show (MultiLine name vars conditions) = show name ++ " " ++ show vars ++ " " ++ show conditions
     show (Ternary cond first second) = show "If " ++ show cond ++ show " Then " ++ show first ++ " Else " ++ show second
 
-data Result = Float Float | String String | Bool Bool | List [Expression] | Error String deriving Eq
-
-
+data Result = Float Float | String String | Bool Bool | List [Expression] deriving Eq
 
 instance Show Result where
     show (Float val) = trimFloat val
     show (String str) = show str
     show (Bool bool) = if bool then "true" else "false"
-    show (Error message) = show message
     show (List exprs) = show exprs
 
 showExprList :: [Expression] -> String
@@ -52,6 +49,12 @@ getType (List x) = "list"
 
 data Op = Add | Sub | Mult | Div | Equal | NotEqual | Greater | GreaterEQ | Less | LessEQ | And | Or
     deriving (Eq, Show)
+
+data ParseErr = MissingBody String | UnexpectedChar String | MissingParen String | MissingStr String | MissingOperand String |
+    MismatchedTypes String | UndefinedVar String | FunctionError String
+    deriving (Show, Typeable)
+
+instance Exception ParseErr
 
 access :: String -> [((String, String), Result)] -> Result
 access name (((key, typee), val):xs)
@@ -73,10 +76,10 @@ findCond ((currConds, val) : xs) conds
 
 evaluateFunction :: Expression -> [Expression] -> [(String, Expression)] -> Result
 evaluateFunction (Function name vars expr) vals state
-    | length vars /= length vals = Error $ "Incorrect number of arguments for function " ++ name ++ ". Expected " ++ show (length vars) ++ " but given " ++ show (length vals)
+    | length vars /= length vals = throw $ FunctionError $ "Incorrect number of arguments for function " ++ name ++ ". Expected " ++ show (length vars) ++ " but given " ++ show (length vals)
     | otherwise = evaluate' (subFunction expr (zip vars (map (\x -> evaluate' x state) vals))) state
 evaluateFunction (MultiLine name vars conds) vals state
-    | length vars /= length vals = Error $ "Incorrect number of arguments for function " ++ name ++ ". Expected " ++ show (length vars) ++ " but given " ++ show (length vals)
+    | length vars /= length vals = throw $ FunctionError $ "Incorrect number of arguments for function " ++ name ++ ". Expected " ++ show (length vars) ++ " but given " ++ show (length vals)
     | otherwise = evaluate' (subFunction (findCond conds vals) (zip vars (map (\x -> evaluate' x state) vals))) state
 
 matchingType :: String -> Result -> Bool
@@ -105,12 +108,12 @@ evaluateBinaryNum LessEQ a b = Bool $ a <= b
 
 evaluateBinaryStr :: Op -> String -> String -> Result
 evaluateBinaryStr Add a b = String $ a ++ b
-evaluateBinaryStr op a b = Error $ "Cannot perform operation " ++ show op ++ " on strings"
+evaluateBinaryStr op a b = throw $ MismatchedTypes $ "Cannot perform operation " ++ show op ++ " on strings"
 
 evaluateBool :: Op -> Bool -> Bool -> Result
 evaluateBool And a b = Bool $ a && b
 evaluateBool Or a b = Bool $ a || b
-evaluateBool op a b = Error $ "Cannot perform operation " ++ show op ++ " on booleans"
+evaluateBool op a b = throw $ MismatchedTypes $ "Cannot perform operation " ++ show op ++ " on booleans"
 
 
 evaluateBinary :: Op -> Result -> Result -> Result
@@ -121,7 +124,7 @@ evaluateBinary op (String a) (String b) = evaluateBinaryStr op a b
 evaluateBinary op (Float a) (String b) = evaluateBinaryStr op (show a) b
 evaluateBinary op (String a) (Float b) = evaluateBinaryStr op a (show b)
 evaluateBinary op (Bool a) (Bool b) = evaluateBool op a b
-evaluateBinary op a b = Error $ "Cannot preform operation " ++ show op ++ " with given types"
+evaluateBinary op a b = throw $  MismatchedTypes $ "Cannot preform operation " ++ show op ++ " with given types"
 
 evaluateTernary :: Result -> Expression -> Expression -> [(String, Expression)] -> Result
 evaluateTernary result first second state
@@ -146,8 +149,8 @@ evaluate' (FunctionCall name exprs) state = evaluateFunction (findFunction name 
 evaluate' (Ternary cond first second) state = evaluateTernary (evaluate' cond state) first second state
 --evaluate' (List exprs) state = List $ map (\x -> evaluate x state) exprs
 evaluate' (Literal val) state = evaluateLiteral val state
-evaluate' (Var val) state = Error $ "Undefined variable: " ++ val
-evaluate' x state = Error $ "Unexepcted expression" ++ show x
+evaluate' (Var val) state = throw $ UndefinedVar $ "Undefined variable: " ++ val
+evaluate' x state = throw $ UnexpectedChar $ "Unexepcted character " ++ show x
 
 data Token =
     NumTok String | OpTok String | ParenTok String | IdenTok String | BoolTok Bool |
@@ -185,11 +188,6 @@ op "<" = Less
 op "<=" = LessEQ
 op "&&" = And
 op "||" = Or
-
-data ParseErr = MissingBody String | UnexpectedChar String | MissingParen String | MissingStr String | MissingOperand String |
-    MismatchedTypes String deriving (Show, Typeable)
-
-instance Exception ParseErr
 
 subExpr :: [Token] -> [Token] -> Int -> [Token]
 subExpr ((ParenTok ")") : xs) b 0 = reverse b
@@ -242,7 +240,7 @@ parseElse (x : xs) cond
     | otherwise = parseElse xs cond
 
 parseList :: [Token] -> [Expression]
-parseList x 
+parseList x
     | last x /= ParenTok "]" = throw $ UnexpectedChar $ "Unexpected character " ++ show (last x)
     | otherwise = map parse (splitByToken (init x) Comma [])
 
@@ -252,10 +250,12 @@ parse ((OpTok x) : xs) = Binary (op x) (parse $ parseFirst xs) (parse $ parseSec
 parse (If : xs) = Ternary (parse $ parseCond xs) (parse $ parseThen xs False) (parse $ parseElse xs False)
 parse (NumTok x : xs) = Literal $ Float (read x :: Float)
 parse (BoolTok x : xs) = Literal $ Bool x
-parse (IdenTok x : ParenTok "(" : xs) = parseFunctionCall (IdenTok x : ParenTok "(" : xs)
-parse (IdenTok x : xs) = Var x
+parse [IdenTok x] = Var x
+parse (IdenTok x : ParenTok ")" : xs) = Var x
 parse (ParenTok "[" : xs) = Literal $ List $ parseList xs
-parse x = (trace $ show x) Literal $ Float 12
+parse x = parseFunctionCall x
+
+-- parse x = (trace $ show x) Literal $ Float 12
 
 parseVars :: [Token] -> [(String, String)] -> [(String, String)]
 parseVars (IdenTok x : ParenTok "(": xs) vars = parseVars xs vars
@@ -300,7 +300,27 @@ parseInput :: [Token] -> [Expression]
 parseInput (ParenTok "(" : xs) = map parseInterface (splitByToken (init xs) Comma [])
 
 parseFunctionCall :: [Token] -> Expression
-parseFunctionCall (IdenTok name : xs) = FunctionCall name (parseInput xs)
+parseFunctionCall (IdenTok name : xs) = FunctionCall name (map parse (reverse $ parseArgs xs 0 []))
+
+-- x == 0 indicates a single expression
+-- parseArgs :: [Token] -> Int -> [[Token]]
+-- parseArgs (x : xs) paren
+--     | x == ParenTok ")" = []
+--     | paren == 0 = [x] : (parseArgs xs 0)
+--     | otherwise = x : parseArgs xs paren
+-- parseArgs [] x = []
+
+parseArgs :: [Token] -> Int -> [[Token]]-> [[Token]]
+parseArgs (ParenTok "(" : xs) paren [] = parseArgs xs (paren + 1) [[ParenTok "("]]
+parseArgs (x : xs) paren list
+    | x == ParenTok "(" = parseArgs xs (paren + 1) ((x : head list) : init list)
+    | x == ParenTok ")" =  parseArgs xs (paren - 1) ((x : head list) : init list)
+    | paren == 0 = parseArgs xs paren ([x] : list)
+    | otherwise = parseArgs xs paren ((x : head list) : init list)
+parseArgs [] x list
+    | x == 0 = map reverse list
+    | otherwise = throw $ UnexpectedChar "Expected ending parenthesis"
+
 
 isFunctionDef :: [Token] -> Bool
 isFunctionDef [] = False
