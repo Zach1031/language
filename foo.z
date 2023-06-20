@@ -1,6 +1,4 @@
-fib (x: float)
-    | 0 -> 0
+fact (x: float)
     | 1 -> 1
-    | x -> + (fib (- x 1)) (fib (- x 2))
 
-run -> [fib 10, 3]
+run -> + (+ 1 2) (+ 1 2)

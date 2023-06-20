@@ -33,8 +33,8 @@ instance Show Result where
     show (List exprs) = show exprs
 
 showExprList :: [Expression] -> String
-showExprList [] = " "
-showExprList (x : xs) = " " ++ show x ++ showExprList (xs)
+showExprList [x] = show x
+showExprList (x : xs) = show x ++ ", " ++ showExprList (xs)
 
 trimFloat :: Float -> String
 trimFloat x
@@ -51,7 +51,7 @@ data Op = Add | Sub | Mult | Div | Equal | NotEqual | Greater | GreaterEQ | Less
     deriving (Eq, Show)
 
 data ParseErr = MissingBody String | UnexpectedChar String | MissingParen String | MissingStr String | MissingOperand String |
-    MismatchedTypes String | UndefinedVar String | FunctionError String
+    MismatchedTypes String | UndefinedVar String | FunctionError String | UndefinedFunction String | NoPattern String
     deriving (Show, Typeable)
 
 instance Exception ParseErr
@@ -68,10 +68,11 @@ matchConditions (x : xs) (y : ys)
     | x == y = matchConditions xs ys
     | otherwise = False
 
-findCond :: [([Expression], Expression)] -> [Expression] -> Expression
-findCond ((currConds, val) : xs) conds
+findCond :: [([Expression], Expression)] -> [Expression] -> String -> Expression
+findCond ((currConds, val) : xs) conds name
     | matchConditions currConds conds = val
-    | otherwise = findCond xs conds
+    | otherwise = findCond xs conds name
+findCond [] conds name = throw $ NoPattern $ "No pattern found for arguments (" ++ showExprList conds ++ ") in function " ++ name
 
 
 evaluateFunction :: Expression -> [Expression] -> [(String, Expression)] -> Result
@@ -80,7 +81,7 @@ evaluateFunction (Function name vars expr) vals state
     | otherwise = evaluate' (subFunction expr (zip vars (map (\x -> evaluate' x state) vals))) state
 evaluateFunction (MultiLine name vars conds) vals state
     | length vars /= length vals = throw $ FunctionError $ "Incorrect number of arguments for function " ++ name ++ ". Expected " ++ show (length vars) ++ " but given " ++ show (length vals)
-    | otherwise = evaluate' (subFunction (findCond conds vals) (zip vars (map (\x -> evaluate' x state) vals))) state
+    | otherwise = evaluate' (subFunction (findCond conds vals name) (zip vars (map (\x -> evaluate' x state) vals))) state
 
 matchingType :: String -> Result -> Bool
 matchingType "float" (Float x) = True
@@ -135,6 +136,7 @@ findFunction :: String -> [(String, Expression)] -> Expression
 findFunction request ((name, func) : xs)
     | request == name = func
     | otherwise = findFunction request xs
+findFunction request [] = throw $ UndefinedFunction $ "Unable to find a function definition for " ++ request
 
 evalParam :: [Expression] -> [(String, Expression)] -> [Expression]
 evalParam xs state = map (\ x -> Literal (evaluate' x state)) xs
@@ -255,8 +257,6 @@ parse (IdenTok x : ParenTok ")" : xs) = Var x
 parse (ParenTok "[" : xs) = Literal $ List $ parseList xs
 parse x = parseFunctionCall x
 
--- parse x = (trace $ show x) Literal $ Float 12
-
 parseVars :: [Token] -> [(String, String)] -> [(String, String)]
 parseVars (IdenTok x : ParenTok "(": xs) vars = parseVars xs vars
 parseVars (IdenTok x : Colon : IdenTok y : ParenTok ")" : xs)  vars = reverse ((x, y) : vars)
@@ -282,13 +282,7 @@ parsePattern :: [Token] -> [Expression]
 parsePattern = map (\ x -> parseInterface [x])
 
 parseConditions  :: [[Token]] -> [([Expression], Expression)] -> [([Expression], Expression)]
-parseConditions xs exprs
-  = foldl
-      (\ exprs x
-         -> (parsePattern (head $ splitByToken x Pointer []),
-             parseInterface (last $ splitByToken x Pointer []))
-              : exprs)
-      exprs xs
+parseConditions xs exprs = foldl (\ exprs x -> (parsePattern (head $ splitByToken x Pointer []), parseInterface (last $ splitByToken x Pointer [])) : exprs) exprs xs
 
 parseFunction :: [Token] -> Expression
 parseFunction (IdenTok "run" : xs) = Function "run" [] (parseInterface (splitExpr xs))
@@ -301,14 +295,6 @@ parseInput (ParenTok "(" : xs) = map parseInterface (splitByToken (init xs) Comm
 
 parseFunctionCall :: [Token] -> Expression
 parseFunctionCall (IdenTok name : xs) = FunctionCall name (map parse (reverse $ parseArgs xs 0 []))
-
--- x == 0 indicates a single expression
--- parseArgs :: [Token] -> Int -> [[Token]]
--- parseArgs (x : xs) paren
---     | x == ParenTok ")" = []
---     | paren == 0 = [x] : (parseArgs xs 0)
---     | otherwise = x : parseArgs xs paren
--- parseArgs [] x = []
 
 parseArgs :: [Token] -> Int -> [[Token]]-> [[Token]]
 parseArgs (ParenTok "(" : xs) paren [] = parseArgs xs (paren + 1) [[ParenTok "("]]
@@ -382,12 +368,6 @@ append a b
 
 containsPointer :: String -> Bool
 containsPointer x = head x : [head (tail x)] == "->"
-
-containsEqual :: String -> Bool
-containsEqual x = head x : [head (tail x)] == "=="
-
-containsNotEqual :: String -> Bool
-containsNotEqual x = head x : [head (tail x)] == "!="
 
 isNegative :: String -> Bool
 isNegative (x : y : xs)
