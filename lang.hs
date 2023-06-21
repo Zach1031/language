@@ -433,14 +433,16 @@ consumeStatements :: [[Token]] -> [(String, Expression)] -> Result
 consumeStatements [] state = run state
 consumeStatements (x:xs) a = consumeStatements xs ((extractName $ parseInterface x, parseInterface x) : a)
 
-determineOutput :: Expression -> [(String, Expression)] -> IO()
-determineOutput (Function name varse expr) state = putStr ""
-determineOutput x state = print (evaluate' x state)
+determineOutput :: Expression -> [(String, Expression)] -> (ErrorCall -> IO()) -> IO()
+determineOutput (Function name varse expr) state handler = putStr ""
+determineOutput x state handler = do 
+    Control.Exception.catch (print (evaluate' x state)) handler
 
 appendState :: Expression -> [(String, Expression)] -> [(String, Expression)]
 appendState (Function name expr vars) state
     | name /= "run" = (name, Function name expr vars) : state
     | otherwise = state
+appendState (MultiLine name expr vars) state = (name, MultiLine name expr vars) : state
 appendState x state = state
 
 substring :: Int -> Int -> String -> String
@@ -451,8 +453,8 @@ fileName name
     | last (init name) : [last name] == ".z" = name
     | otherwise = name ++ ".z"
 
-runRepl :: [(String, Expression)] -> IO()
-runRepl state = do
+runRepl :: [(String, Expression)] -> (ErrorCall -> IO()) -> IO()
+runRepl state handler = do
             putStr "> "
             hFlush stdout
             input <- getLine
@@ -462,45 +464,33 @@ runRepl state = do
                         then do
                             let name = fileName (substring 5 (length input) input)
                             file <- readFile name
-                            let statements = map lexerInterface (splitByChar file [])
+                            let statements = joinFunc $ map lexerInterface (removeComments $ splitByChar file [])
 
                             putStrLn $ "Loaded from " ++ name ++ "..."
 
-                            print state
-
-                            runRepl $ foldl (flip appendState) state (map parseInterface statements)
+                            runRepl (foldl (flip appendState) state (map parseInterface statements)) handler
                     else do
                         let output =  parseInterface $ lexerInterface input
-                        determineOutput output state
 
-                        runRepl $ appendState output state
+                        determineOutput output state handler
+
+                        runRepl (appendState output state) handler
             else
                 print "Goodbye!"
+            
 
--- main :: IO ()
--- main = do
---   args <- getArgs
---   if null args
---     then runRepl []
---     else
---         if length args == 1
---             then do
---                 file <- readFile $ head args
---                 --print $ consumeStatements (map lexerInterface (splitByChar file [])) []
---                 print $ consumeStatements (joinFunc (map lexerInterface (splitByChar file []))) []
---             else putStrLn "Usage: ./lang for the console and ./lang [FILENAME] to run file"
-
---MAIN FOR TESTING
-main :: IO()
+main :: IO ()
 main = do
-        file <- readFile "foo.z"
-
-        Control.Exception.catch (print $ consumeStatements (joinFunc (map lexerInterface (removeComments $ splitByChar file []))) []) handler
-            where
-                handler :: ErrorCall -> IO()
-                handler = print
-
-        --print $ (joinFunc (map lexerInterface (removeComments $ splitByChar file [])))
-
-
-        --print $  (map parseInterface (joinFunc (map lexerInterface (splitByChar file []))))
+  args <- getArgs
+  if null args
+    then runRepl [] handler
+    else
+        if length args == 1
+            then do
+                file <- readFile $ head args
+                Control.Exception.catch (print $ consumeStatements (joinFunc (map lexerInterface (removeComments $ splitByChar file []))) []) handler
+                
+            else putStrLn "Usage: ./lang for the console and ./lang [FILENAME] to run file"
+    where
+        handler :: ErrorCall -> IO()
+        handler = print
