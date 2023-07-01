@@ -75,4 +75,4 @@ fib (x: float)
 ```
 
 # WARNING: Error Checking
-There is error checking in the language, but is currently minimal
+There is error checking in the language, but it is currently minimal
