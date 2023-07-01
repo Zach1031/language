@@ -1,5 +1,0 @@
-fact (x: float)
-    | 1 -> 1
-    | x -> + x 1
-
-run -> fact 212
